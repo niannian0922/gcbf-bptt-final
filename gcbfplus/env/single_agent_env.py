@@ -246,7 +246,12 @@ class SingleAgentEnv(BaseEnv):
         Returns:
             Tensor [batch_size] with distance to goal
         """
-        diff = state.position - state.goal
+        # Brute-force device alignment to avoid device mismatch during training
+        position = state.position
+        goal = state.goal
+        if goal.device != position.device:
+            goal = goal.to(position.device)
+        diff = position - goal
         distances = torch.sqrt(torch.sum(diff * diff, dim=1) + 1e-8)
         return distances
     
@@ -270,15 +275,15 @@ class SingleAgentEnv(BaseEnv):
         return collisions | goal_reached | max_steps_reached
     
     @abstractmethod
-    def dynamics(self, state: SingleAgentState, action: torch.Tensor) -> torch.Tensor:
+    def dynamics(self, state: SingleAgentState, action: torch.Tensor) -> SingleAgentState:
         """
-        Apply system dynamics to compute state derivatives.
+        Apply system dynamics to compute the next state.
         
         Args:
             state: Current state of the environment
             action: Actions to apply [batch_size, action_dim]
             
         Returns:
-            State derivatives [batch_size, state_dim]
+            Next state as a `SingleAgentState` instance
         """
         pass
