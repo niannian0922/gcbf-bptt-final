@@ -138,5 +138,5 @@ version: "1.0.0"
 
 wandb:
   project: "gcbf-bptt-final"
-  entity: "niannian0922"   # 我猜这是你的wandb用户名，如果不是请修改
+  entity: "jihaoye0922"   # 我猜这是你的wandb用户名，如果不是请修改
   mode: "offline"         # 使用离线模式，这在Colab中最稳定
