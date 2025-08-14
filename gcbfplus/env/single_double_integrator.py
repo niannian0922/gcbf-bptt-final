@@ -255,26 +255,64 @@ class SingleDoubleIntegratorEnv(SingleAgentEnv):
     def get_observation(self, state: SingleAgentState) -> torch.Tensor:
         """
         Get observation for the agent.
-        
+
+        This upgraded method now includes information about the nearest obstacle
+        if obstacles are enabled, producing a 9-dimensional observation vector
+        to match the policy's expectation.
+
         Args:
             state: Current state
-            
+
         Returns:
-            Observation tensor [batch_size, obs_dim]
+            Observation tensor [batch_size, obs_dim] (6D or 9D)
         """
         if self.use_vision:
             # Return depth image observation
             return self.render_depth(state)
         else:
-            # Standard vector observation
-            # Include: position (2), velocity (2), relative goal (2)
+            # Base observation: position (2), velocity (2), relative goal (2)
             rel_goal = state.goal - state.position
-            obs = torch.cat([
+            base_obs = torch.cat([
                 state.position,
                 state.velocity,
                 rel_goal
             ], dim=-1)
-            return obs
+
+            # If obstacles are present, find the nearest one and append its info
+            if state.obstacles is not None:
+                batch_size = state.batch_size
+                device = state.position.device
+
+                # Extract obstacle positions and radii
+                obstacle_positions = state.obstacles[..., :2]  # [batch, n_obs, 2]
+                obstacle_radii = state.obstacles[..., 2:]      # [batch, n_obs, 1]
+
+                # For each agent in the batch, find the closest obstacle
+                # state.position is [batch, 2], needs unsqueezing for broadcasting
+                agent_pos_expanded = state.position.unsqueeze(1) # [batch, 1, 2]
+
+                # Calculate distances to all obstacles
+                dists_sq = torch.sum((agent_pos_expanded - obstacle_positions) ** 2, dim=2) # [batch, n_obs]
+                
+                # Find the index of the closest obstacle for each batch item
+                closest_indices = torch.argmin(dists_sq, dim=1) # [batch]
+
+                # Gather the information of the closest obstacles
+                # We use gather to select the correct obstacle for each item in the batch
+                batch_indices = torch.arange(batch_size, device=device).unsqueeze(1)
+                closest_obs_pos = obstacle_positions[batch_indices, closest_indices].squeeze(1) # [batch, 2]
+                closest_obs_rad = obstacle_radii[batch_indices, closest_indices].squeeze(1) # [batch, 1]
+
+                # Calculate relative position to the closest obstacle
+                rel_obs_pos = closest_obs_pos - state.position
+
+                # Concatenate to form the final 9D observation
+                # [base_obs (6D), rel_obs_pos (2D), closest_obs_rad (1D)]
+                final_obs = torch.cat([base_obs, rel_obs_pos, closest_obs_rad], dim=-1)
+                return final_obs
+            else:
+                # If no obstacles, return the base 6D observation
+                return base_obs
     
     def render_depth(self, state: SingleAgentState) -> torch.Tensor:
         """
