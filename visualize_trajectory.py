@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Import our project modules
 from gcbfplus.env.single_double_integrator import SingleDoubleIntegratorEnv
-from gcbfplus.policy.bptt_policy import BPTTPolicy
+from gcbfplus.trainer.bptt_trainer import SimpleMLPPolicy as BPTTPolicy
 
 
 class TrajectoryVisualizer:
@@ -42,8 +42,18 @@ class TrajectoryVisualizer:
         # Initialize environment
         self.env = SingleDoubleIntegratorEnv(config.get('env', {}), device=device)
         
-        # Initialize policy
-        self.policy = BPTTPolicy(config.get('policy', {}))
+        # Correctly initialize the SimpleMLPPolicy with explicit arguments
+        policy_cfg = config.get('policy', {})
+        # Based on our inspect_model.py script, the trained model has these dimensions
+        input_dim = 6
+        output_dim = 2
+        hidden_dim = policy_cfg.get('hidden_dim', 128) # Get hidden_dim from config
+
+        self.policy = BPTTPolicy(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            hidden_dim=hidden_dim
+        )
         self.policy.to(device)
         
         # Load trained model checkpoint
@@ -137,7 +147,9 @@ class TrajectoryVisualizer:
             
             # Get action from policy (no gradients needed for visualization)
             with torch.no_grad():
-                actions, alpha, dynamic_margins = self.policy(observations)
+                actions = self.policy(observations)
+                alpha = None
+                dynamic_margins = None
             
             # Extract state components
             positions, velocities = self._extract_state_components(state)
