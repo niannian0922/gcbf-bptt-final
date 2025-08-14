@@ -112,9 +112,7 @@ trainer:
   run_name: "rebalance_F_balanced_attempt"
   log_dir: "logs"
 
-  # Backward compatibility: nested num_steps for legacy readers
-  trainer:
-    num_steps: 10000
+ 
 
   # BPTT sub-config
   bptt:
