@@ -240,7 +240,7 @@ class SingleDoubleIntegratorEnv(SingleAgentEnv):
         # Get obstacles
         obstacles = self.get_obstacle_tensor(batch_size)
         
-        return SingleDoubleIntegratorState(
+        initial_state = SingleDoubleIntegratorState(
             position=positions,
             velocity=velocities,
             goal=goals,
@@ -248,6 +248,9 @@ class SingleDoubleIntegratorEnv(SingleAgentEnv):
             batch_size=batch_size,
             step_count=0
         )
+
+        # This ensures the returned state is fully on the correct device
+        return initial_state.to(self.A.device)
     
     def get_observation(self, state: SingleAgentState) -> torch.Tensor:
         """

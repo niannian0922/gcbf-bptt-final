@@ -28,6 +28,18 @@ class SingleAgentState(EnvState):
     def pos_dim(self) -> int:
         return self.position.shape[-1]
     
+    def to(self, device: torch.device) -> "SingleAgentState":
+        """Returns a new state object with all tensors moved to the specified device."""
+        return SingleAgentState(
+            position=self.position.to(device),
+            velocity=self.velocity.to(device),
+            goal=self.goal.to(device),
+            orientation=self.orientation.to(device) if self.orientation is not None else None,
+            obstacles=self.obstacles.to(device) if self.obstacles is not None else None,
+            batch_size=self.batch_size,
+            step_count=self.step_count,
+        )
+
     @property
     def state_tensor(self) -> torch.Tensor:
         """Create combined state tensor for the single agent."""
@@ -246,12 +258,7 @@ class SingleAgentEnv(BaseEnv):
         Returns:
             Tensor [batch_size] with distance to goal
         """
-        # Brute-force device alignment to avoid device mismatch during training
-        position = state.position
-        goal = state.goal
-        if goal.device != position.device:
-            goal = goal.to(position.device)
-        diff = position - goal
+        diff = state.position - state.goal
         distances = torch.sqrt(torch.sum(diff * diff, dim=1) + 1e-8)
         return distances
     
