@@ -6,6 +6,8 @@ from torch import nn
 from torch.optim import Adam
 import wandb
 
+from ..policy.bptt_policy import BPTTPolicy
+
 
 class SimpleMLPPolicy(nn.Module):
     def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 64) -> None:
@@ -60,26 +62,12 @@ class BPTTTrainer:
         self.save_interval: int = int(training_cfg.get("save_interval", 1000))
         self.global_step: int = 0
 
-        # Determine observation and action dimensions from the environment
-        if hasattr(self.env, "observation_shape"):
-            obs_shape = self.env.observation_shape
-            obs_dim = int(obs_shape[0]) if isinstance(obs_shape, tuple) else int(obs_shape)
-        else:
-            obs_dim = int(getattr(self.env, "state_dim", 4))
+        # Get environment dimensions for configuration validation
+        obs_dim = int(self.env.observation_shape[0]) if isinstance(self.env.observation_shape, tuple) else int(self.env.observation_shape)
+        action_dim = int(self.env.action_shape[0]) if isinstance(self.env.action_shape, tuple) else int(self.env.action_shape)
 
-        if hasattr(self.env, "action_shape"):
-            act_shape = self.env.action_shape
-            action_dim = int(act_shape[0]) if isinstance(act_shape, tuple) else int(act_shape)
-        else:
-            action_dim = int(getattr(self.env, "action_dim", 2))
-
-        # Policy
-        hidden_dim: int = int(policy_cfg.get("hidden_dim", 64))
-        self.policy = SimpleMLPPolicy(
-            input_dim=obs_dim,
-            output_dim=action_dim,
-            hidden_dim=hidden_dim,
-        ).to(self.device)
+        # NEW: We now pass the entire policy config dictionary to the advanced BPTTPolicy
+        self.policy = BPTTPolicy(policy_cfg).to(self.device)
 
         self.optimizer = Adam(self.policy.parameters(), lr=self.learning_rate)
 
@@ -93,44 +81,75 @@ class BPTTTrainer:
             mode=wandb_config.get("mode", "online"),
         )
 
-    def rollout(self, init_state: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def rollout(self, init_state: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         state = init_state
         cumulative_loss = torch.zeros((), device=self.device)
         sum_goal_distance = torch.zeros((), device=self.device)
         collision_count = torch.zeros((), device=self.device)
+        sum_alpha = torch.zeros((), device=self.device)
 
         for _ in range(self.horizon):
             observations = self.env.get_observation(state)
             if hasattr(observations, "to"):
                 observations = observations.to(self.device)
 
-            action = self.policy(observations)
-            step_result = self.env.step(state, action, None)
+            # --- START OF PROBABILISTIC SHIELD LOGIC ---
+
+            # 1. Get the nominal action and safety confidence (alpha) from our advanced policy
+            # The policy now returns a tuple: (action, alpha, margin)
+            nominal_action, alpha, _ = self.policy(observations)
+
+            # 2. Define the safe backup action. For now, we use the simplest and most robust option: hovering (zero action).
+            safe_backup_action = torch.zeros_like(nominal_action)
+
+            # 3. Check if the policy is configured to predict alpha. If not, default to full trust in the policy.
+            if alpha is None:
+                final_action = nominal_action
+                # Set a default alpha of 1.0 for logging purposes
+                log_alpha = torch.ones(nominal_action.shape[0], 1, device=self.device)
+            else:
+                # 4. Implement the core blending logic of the shield!
+                final_action = alpha * nominal_action + (1 - alpha) * safe_backup_action
+                log_alpha = alpha
+
+            # --- END OF PROBABILISTIC SHIELD LOGIC ---
+
+            step_result = self.env.step(state, final_action, alpha) # Pass alpha to step for potential use
             next_state = step_result.next_state
 
-            # Goal distance metric
+            # --- Loss Calculation with new Alpha Regularization ---
             goal_distances = self.env.get_goal_distance(next_state)
             avg_goal_distance_step = torch.mean(goal_distances)
             sum_goal_distance = sum_goal_distance + avg_goal_distance_step
 
-            # Control effort regularization
-            ctrl_cost = 1e-3 * torch.sum(action ** 2)
+            # Control effort regularization (on the final action)
+            ctrl_cost = 1e-3 * torch.sum(final_action ** 2)
 
             # Tracking cost: squared goal distance
             track_cost = torch.sum(goal_distances ** 2)
+
+            # Alpha Regularization Loss (New!)
+            # We penalize the model for being uncertain (alpha close to 0).
+            # This encourages the model to be confident (alpha -> 1) when it's safe.
+            alpha_reg_loss = self.config.get('losses', {}).get('alpha_reg_weight', 0.0) * torch.mean((1.0 - log_alpha) ** 2)
 
             # Collision metric
             collision_event = (step_result.cost > 0).to(self.device)
             collision_count = collision_count + torch.sum(collision_event.float())
 
-            step_loss = track_cost + ctrl_cost
+            # Update total loss
+            step_loss = track_cost + ctrl_cost + alpha_reg_loss # Added new loss term
             cumulative_loss = cumulative_loss + step_loss
+
+            # Accumulate alpha for averaging
+            sum_alpha = sum_alpha + torch.mean(log_alpha)
 
             state = next_state
 
         avg_goal_distance = sum_goal_distance / float(self.horizon)
         collision_rate = collision_count / float(self.horizon)
-        return cumulative_loss, avg_goal_distance, collision_rate
+        avg_alpha = sum_alpha / float(self.horizon)
+        return cumulative_loss, avg_goal_distance, collision_rate, avg_alpha
 
     def train(self, num_steps: Optional[int] = None) -> None:
         self.policy.train()
@@ -139,7 +158,7 @@ class BPTTTrainer:
         max_steps: int = int(num_steps) if num_steps is not None else int(self.num_steps)
         for step_idx in range(max_steps):
             self.optimizer.zero_grad(set_to_none=True)
-            total_loss, avg_goal_distance, collision_rate = self.rollout(init_state)
+            total_loss, avg_goal_distance, collision_rate, avg_alpha = self.rollout(init_state)
             total_loss.backward()
             nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=10.0)
             self.optimizer.step()
@@ -149,6 +168,7 @@ class BPTTTrainer:
                     "loss": float(total_loss.item()),
                     "goal_distance": float(avg_goal_distance.item()),
                     "collision_rate": float(collision_rate.item()),
+                    "avg_alpha_confidence": float(avg_alpha.item()), # New metric!
                 },
                 step=self.global_step,
             )
