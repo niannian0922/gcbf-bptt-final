@@ -26,11 +26,13 @@ def main():
 
     print("Starting BPTT training with configuration:")
     print(f"  Run name: {trainer_cfg.get('run_name', 'default')}")
-    print(f"  Steps: {trainer_cfg.get('trainer', {}).get('num_steps', 0)}")
+    # Prefer new unified training config if present
+    effective_num_steps = trainer_cfg.get('trainer', {}).get('num_steps', config.get('training', {}).get('training_steps', 0))
+    print(f"  Steps: {effective_num_steps}")
     print(f"  Horizon: {trainer_cfg.get('bptt', {}).get('horizon_length', 0)}")
     print(f"  Log dir: {trainer_cfg.get('log_dir', 'logs')}/{trainer_cfg.get('run_name', 'default')}")
 
-    trainer.train()
+    trainer.train(num_steps=effective_num_steps)
     return 0
 
 if __name__ == '__main__':

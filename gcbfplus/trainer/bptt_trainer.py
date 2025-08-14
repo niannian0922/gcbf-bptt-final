@@ -1,4 +1,5 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
+import os
 
 import torch
 from torch import nn
@@ -34,11 +35,29 @@ class BPTTTrainer:
         self.device = device
         self.config: Dict[str, Any] = full_config
 
-        # Config-driven hyperparameters
-        self.horizon: int = int(trainer_cfg.get("bptt", {}).get("horizon_length", 64))
-        self.num_steps: int = int(trainer_cfg.get("trainer", {}).get("num_steps", 1000))
-        self.learning_rate: float = float(trainer_cfg.get("optim", {}).get("lr", 1e-3))
-        self.run_name: str = str(trainer_cfg.get("run_name", "default"))
+        # Config-driven hyperparameters (robust to different schema variants)
+        training_cfg: Dict[str, Any] = full_config.get("training", {})
+        self.horizon: int = int(
+            trainer_cfg.get("bptt", {}).get("horizon_length",
+            training_cfg.get("horizon_length", 64))
+        )
+        self.num_steps: int = int(
+            trainer_cfg.get("trainer", {}).get("num_steps",
+            training_cfg.get("training_steps", 1000))
+        )
+        self.learning_rate: float = float(
+            trainer_cfg.get("optim", {}).get("lr",
+            training_cfg.get("learning_rate", 1e-3))
+        )
+
+        # Logging / naming
+        self.run_name: str = str(full_config.get("run_name", trainer_cfg.get("run_name", "default")))
+        self.log_dir: str = str(trainer_cfg.get("log_dir", "logs"))
+        self.model_save_path: str = os.path.join(self.log_dir, self.run_name, "models")
+        os.makedirs(self.model_save_path, exist_ok=True)
+
+        # Checkpointing interval
+        self.save_interval: int = int(training_cfg.get("save_interval", 1000))
         self.global_step: int = 0
 
         # Determine observation and action dimensions from the environment
@@ -113,11 +132,12 @@ class BPTTTrainer:
         collision_rate = collision_count / float(self.horizon)
         return cumulative_loss, avg_goal_distance, collision_rate
 
-    def train(self) -> None:
+    def train(self, num_steps: Optional[int] = None) -> None:
         self.policy.train()
         init_state = self.env.reset()
 
-        for step_idx in range(self.num_steps):
+        max_steps: int = int(num_steps) if num_steps is not None else int(self.num_steps)
+        for step_idx in range(max_steps):
             self.optimizer.zero_grad(set_to_none=True)
             total_loss, avg_goal_distance, collision_rate = self.rollout(init_state)
             total_loss.backward()
@@ -141,5 +161,12 @@ class BPTTTrainer:
                     f"GoalDist: {avg_goal_distance.item():.4f} | "
                     f"CollRate: {collision_rate.item():.4f}"
                 )
+
+            # Periodic checkpoint saving
+            if self.global_step % int(self.save_interval) == 0:
+                step_dir = os.path.join(self.model_save_path, str(self.global_step))
+                os.makedirs(step_dir, exist_ok=True)
+                torch.save(self.policy.state_dict(), os.path.join(step_dir, "policy.pt"))
+                print(f"Checkpoint saved at step {self.global_step} -> {step_dir}")
 
 
