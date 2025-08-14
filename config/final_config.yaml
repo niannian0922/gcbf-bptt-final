@@ -1,0 +1,96 @@
+# Definitive single-agent configuration for GCBF+BPTT
+
+# Top-level device selection
+device: "cuda"
+
+# Optional run name at top-level (used by trainer fallback)
+run_name: "final_single_agent_run"
+
+# Environment configuration (must satisfy SingleAgentEnv and SingleDoubleIntegratorEnv)
+env:
+  env_type: "single_double_integrator"
+  area_size: 2.0           # scalar field size used for random init and goal sampling
+  dt: 0.05                 # integration timestep
+  max_steps: 256           # episode cap
+  agent_radius: 0.05       # agent collision radius
+
+  # Dynamics (specific to SingleDoubleIntegratorEnv)
+  mass: 0.1
+  max_force: 1.0
+  cbf_alpha: 1.0
+
+  # Optional vision block (kept disabled by default)
+  vision:
+    enabled: false
+    image_size: 64
+    camera_fov: 90.0
+    camera_range: 3.0
+
+  # Obstacles configuration (supports static and dynamic)
+  obstacles:
+    enabled: true
+    positions: [[1.0, 1.0]]
+    radii: [0.2]
+    # Dynamic/random generation toggles
+    dynamic_count: false
+    random: false
+    random_count: 0
+    random_min_radius: 0.08
+    random_max_radius: 0.3
+    count_range: [2, 8]
+
+# Policy configuration (BPTTTrainer currently uses policy.hidden_dim)
+policy:
+  hidden_dim: 128
+
+  # Extended sections for future models; kept for completeness and forward-compatibility
+  memory:
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.0
+
+  actor:
+    hidden_dims: [128, 128]
+    activation: "relu"
+    output_dim: 2
+    output_activation: null
+    learning_rate: 0.001
+
+  critic:
+    hidden_dims: [128, 128]
+    activation: "relu"
+    learning_rate: 0.001
+
+# Trainer configuration (used directly by train_single_agent and BPTTTrainer)
+trainer:
+  run_name: "final_single_agent_run"
+  log_dir: "logs"
+
+  # Backward compatibility: nested num_steps for legacy readers
+  trainer:
+    num_steps: 10000
+
+  # BPTT sub-config
+  bptt:
+    horizon_length: 64
+
+  # Optim sub-config for legacy readers
+  optim:
+    lr: 0.001
+
+# Unified training schema consumed by BPTTTrainer (preferred)
+training:
+  training_steps: 10000
+  horizon_length: 64
+  learning_rate: 0.001
+  save_interval: 1000
+  max_grad_norm: 1.0
+  gradient_decay_rate: 0.95
+
+# Weights & Biases configuration (consumed by BPTTTrainer via config.wandb)
+wandb:
+  project: "gcbf-bptt-final"
+  entity: "jihaoye0922"
+  mode: "offline"
+
+
