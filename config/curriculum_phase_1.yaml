@@ -1,0 +1,120 @@
+# Curriculum Learning Phase 1: Basic Training Configuration
+# FOUNDATION PHASE: Core skills development with manageable complexity
+# Strategy: Build fundamental obstacle avoidance and cooperation abilities
+
+# 实验名称
+run_name: "curriculum_phase_1_foundation"
+
+# PHASE 1 ENVIRONMENT: Simplified but still challenging
+env:
+  num_agents: 2                   # 保持智能体数量以匹配模型
+  area_size: 2.0                  # 环境大小
+  agent_radius: 0.2               # 智能体半径
+  comm_radius: 1.0                # 通信半径
+  mass: 0.1                       # 智能体质量
+  dt: 0.05                        # 仿真时间步长
+  max_force: 1.0                  # 最大力
+  cbf_alpha: 1.0                  # CBF安全约束的Alpha参数
+  max_steps: 300                  # 最大步数
+
+  # PHASE 1: Simplified obstacle configuration
+  obstacles:
+    enabled: true                 # 启用障碍物
+    dynamic_count: true           # 动态障碍物数量
+    count_range: [1, 3]           # PHASE 1: 只出现1-3个障碍物 (基础难度)
+    
+    # Moderate obstacle properties for learning
+    random: true                  # 启用随机障碍物
+    random_min_radius: 0.1        # 适中的最小半径
+    random_max_radius: 0.3        # 适中的最大半径 (降低难度)
+    
+    # 传统配置保持为空
+    num_obstacles: 0
+    positions: []
+    radii: []
+
+# 网络参数 (继承冠军模型架构)
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 9                # 有障碍物观测维度
+      hidden_dim: 64
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256]
+      activation: relu
+      predict_alpha: true
+      predict_margin: true        # 保持自适应安全裕度
+      margin_hidden_dim: 64
+
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.2            # 基础安全裕度
+    use_qp: true
+
+# PHASE 1训练参数 - 基础阶段
+training:
+  training_steps: 8000            # PHASE 1: 基础训练步数
+  horizon_length: 50              # BPTT rollout长度
+  eval_horizon: 300               # 评估rollout长度
+  eval_interval: 200              # 评估间隔
+  save_interval: 1000             # 模型保存间隔
+  learning_rate: 0.0005           # 稍高学习率以加速基础学习
+  max_grad_norm: 1.0              # 梯度裁剪
+  
+  # 学习率调度器
+  use_lr_scheduler: true
+  lr_step_size: 2000              # 学习率调整间隔
+  lr_gamma: 0.9                   # 温和衰减
+  
+  # 时序稳定性的梯度衰减
+  gradient_decay_rate: 0.95
+
+# 损失权重 - 基础阶段平衡策略
+loss_weights:
+  # 基础权重 - 平衡学习
+  goal_weight: 0.8                # 较高目标权重鼓励探索
+  safety_weight: 12.0             # 中等安全权重
+  
+  # 控制正则化权重 - 适中约束
+  acceleration_loss_weight: 0.005 # 基础加速度约束
+  jerk_loss_weight: 0.01          # 基础抖动约束
+  
+  # 其他权重
+  control_weight: 0.1             # 控制努力损失
+  alpha_reg_weight: 0.01          # alpha正则化权重
+  progress_weight: 0.05           # 进度奖励权重
+  
+  # 自适应安全裕度权重
+  margin_reg_weight: 0.05         # 裕度正则化权重
+
+# CORE INNOVATION 1: 自适应安全裕度参数
+use_adaptive_margin: true         # 激活自适应裕度
+min_safety_margin: 0.15           # 最小裕度
+max_safety_margin: 0.4            # 最大裕度
+
+# CORE INNOVATION 2: 安全门控Alpha正则化
+use_safety_gated_alpha_reg: true  # 保持安全门控创新
+safety_loss_threshold: 0.02       # 适中的安全阈值
+
+# CBF参数
+cbf_alpha: 1.0
+
+# 日志配置
+enable_episode_logging: true
+
+# Wandb配置
+wandb_config:
+  project: "gcbf-curriculum-phase1"
+  offline: true                   # 离线模式
+
+# 实验元数据
+experiment_type: "curriculum_learning_phase_1"
+description: "CURRICULUM PHASE 1: Foundation training with 1-3 obstacles, basic randomization patterns. Goal: Establish core obstacle avoidance and cooperation skills."

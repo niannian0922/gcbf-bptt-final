@@ -1,0 +1,74 @@
+# Baseline Safety-Gated (5000 steps, no obstacles) — aligned env with candidate
+
+run_name: "baseline_safety_gated_5000"
+
+env:
+  num_agents: 2
+  area_size: 2.0
+  agent_radius: 0.2
+  comm_radius: 1.0
+  mass: 0.1
+  dt: 0.05
+  max_force: 1.0
+  cbf_alpha: 1.0
+  max_steps: 300
+
+  obstacles:
+    enabled: false
+    num_obstacles: 0
+    positions: []
+    radii: []
+
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6
+      hidden_dim: 64
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256]
+      activation: relu
+      predict_alpha: true
+
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.2
+    use_qp: true
+
+training:
+  training_steps: 5000
+  horizon_length: 50
+  eval_horizon: 300
+  eval_interval: 500
+  save_interval: 1000
+  learning_rate: 0.0005
+  max_grad_norm: 1.0
+  use_lr_scheduler: true
+  lr_step_size: 1000
+  lr_gamma: 0.8
+  gradient_decay_rate: 0.95
+
+loss_weights:
+  goal_weight: 0.7
+  safety_weight: 10.0
+  acceleration_loss_weight: 0.005
+  jerk_loss_weight: 0.01
+  control_weight: 0.1
+  alpha_reg_weight: 0.01
+  progress_weight: 0.05
+
+use_safety_gated_alpha_reg: true
+safety_loss_threshold: 0.01
+
+cbf_alpha: 1.0
+
+enable_episode_logging: true
+
+

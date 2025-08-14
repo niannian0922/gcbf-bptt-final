@@ -1,0 +1,85 @@
+# Dynamic alpha configuration for bottleneck scenarios
+
+# 实验名称
+run_name: "Bottleneck_Dynamic_Alpha_Experiment"
+
+env:
+  area_size: 2.0
+  dt: 0.03
+  mass: 0.1
+  num_agents: 8
+  max_steps: 200
+  agent_radius: 0.05
+  comm_radius: 0.5
+  cbf_alpha: 1.0  # 默认值，将被动态alpha覆盖
+  obstacles:
+    bottleneck: true
+    gap_width: 0.25        # 0.25单位的狭窄缺口
+    wall_thickness: 0.1    # 墙体厚度
+    wall_height: 1.6       # 每个墙段的高度
+    gap_position: 0.5      # 缺口在中心位置（0.5）
+    obstacle_spacing: 0.08 # 墙体障碍物间距
+    obstacle_radius: 0.06  # 每个墙体障碍物的半径
+
+# 网络配置
+networks:
+  policy:
+    type: bptt
+    perception:
+      input_dim: 9  # pos(2) + vel(2) + goal(2) + closest_obstacle(3)
+      hidden_dim: 128
+      num_layers: 3
+      activation: relu
+      use_batch_norm: false
+      vision_enabled: false
+    memory:
+      hidden_dim: 128
+      num_layers: 2
+      input_dim: 128
+    policy_head:
+      hidden_dims: [128]
+      alpha_hidden_dim: 64
+      activation: relu
+      action_scaling: true
+      output_dim: 2
+  cbf:
+    hidden_dim: 128
+    edge_dim: 4
+    node_dim: 9
+    n_layers: 3
+    msg_hidden_sizes: [128, 128]
+    update_hidden_sizes: [128, 128]
+    aggr_hidden_sizes: [128]
+
+# 训练配置
+training:
+  name: "Bottleneck_Dynamic_Alpha"
+  steps: 20000
+  batch_size: 1
+  lr: 0.0003
+  lr_decay: 0.99
+  lr_decay_steps: 1000
+  horizon_length: 80
+  eval_frequency: 1000
+  eval_episodes: 10
+  save_frequency: 5000
+  gradient_decay_rate: 0.95
+  use_wandb: false
+  
+  loss_weights:
+    goal_weight: 1.0
+    safety_weight: 10.0
+    control_weight: 0.1
+    jerk_weight: 0.05
+    alpha_reg_weight: 0.01
+
+# 瓶颈分析的环境指标
+bottleneck_metrics:
+  enabled: true
+  bottleneck_region:
+    x_min: 0.9   # 瓶颈周围的区域
+    x_max: 1.1
+    y_min: 0.8
+    y_max: 1.2
+  throughput_window: 1.0  # 吞吐量计算的时间窗口
+  velocity_threshold: 0.1 # 低于此速度 = 等待 

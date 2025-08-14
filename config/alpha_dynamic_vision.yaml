@@ -1,0 +1,85 @@
+# Vision-based dynamic alpha configuration
+
+# 实验名称
+run_name: "GCBF+_Dynamic_Alpha_Vision"
+
+# 环境参数
+env:
+  num_agents: 4                   # 为视觉复杂性减少智能体数量
+  area_size: 2.0                  # 更大的区域以获得更好的视觉多样性
+  car_radius: 0.08                # 稍大的智能体以获得更好的可见性
+  comm_radius: 0.8                # 针对更大区域调整
+  mass: 0.1                       # 每个智能体的质量
+  dt: 0.03                        # 仿真时间步长
+  cbf_alpha: 1.0                  # 默认CBF alpha（将被动态预测覆盖）
+  
+  # 视觉配置
+  vision:
+    enabled: true                 # 启用基于视觉的观测
+    image_size: 64                # 方形深度图像（64x64）
+    camera_fov: 90.0              # 导航的宽视场角
+    camera_range: 3.0             # 最大深度范围
+    agent_color: [0.2, 0.6, 1.0]  # 其他智能体用蓝色
+    obstacle_color: [1.0, 0.2, 0.2]  # 障碍物用红色
+
+# 网络参数
+networks:
+  # 策略CRNN参数
+  policy:
+    # 感知模块配置
+    perception:
+      vision_enabled: true
+      input_channels: 1             # 深度图像（灰度）
+      conv_channels: [32, 64, 128]  # CNN通道数递增
+      kernel_sizes: [5, 3, 3]       # 每个卷积层的核大小
+      image_size: 64                # 必须匹配env.vision.image_size
+      hidden_dim: 128               # 视觉复杂性的更大隐藏维度
+      activation: 'relu'
+    
+    # 记忆模块配置
+    memory:
+      hidden_dim: 128               # 必须匹配感知隐藏维度
+      num_layers: 1                 # GRU层数
+    
+    # 策略头配置
+    policy_head:
+      output_dim: 2                 # 动作维度（fx, fy）
+      hidden_dims: [128]            # 策略头的隐藏层
+    
+  # CBF网络参数（仍使用提取的特征）
+  cbf:
+    input_dim: 128                # 匹配策略隐藏维度
+    hidden_dim: 128               # CBF隐藏维度
+    n_layers: 3                   # 基于视觉安全的更深网络
+
+# 训练参数
+training:
+  training_steps: 5000            # 初始验证的较少步数
+  horizon_length: 30              # 视觉复杂性的较短时间范围
+  eval_horizon: 50                # 评估时间范围长度
+  eval_interval: 200              # 较少频率的评估
+  save_interval: 1000             # 模型保存间隔
+  learning_rate: 0.0005           # 视觉的较低学习率
+  max_grad_norm: 1.0              # 梯度裁剪范数
+  
+  # 学习率调度器
+  use_lr_scheduler: true          # 启用学习率调度
+  lr_step_size: 1000              # 调度器的步长
+  lr_gamma: 0.8                   # 学习率衰减因子
+  
+  # 时序稳定性的梯度衰减
+  gradient_decay_rate: 0.95       # 梯度随时间衰减的速率
+
+  # 损失权重（针对基于视觉的学习调整）
+  goal_weight: 1.0                # 目标到达损失的权重
+  safety_weight: 5.0              # 降低的安全权重（视觉提供隐式安全意识）
+  control_weight: 0.1             # 控制努力损失的权重
+  jerk_weight: 0.05               # 抖动惩罚的权重（动作变化率）
+  alpha_reg_weight: 0.005         # 视觉的较低alpha正则化（让网络学习自适应边距）
+  cbf_alpha: 1.0                  # 备用alpha参数
+
+# 评估参数
+eval:
+  num_episodes: 10                # 评估回合数
+  render_episodes: 2              # 评估期间渲染的回合数
+  save_videos: true               # 保存评估视频 

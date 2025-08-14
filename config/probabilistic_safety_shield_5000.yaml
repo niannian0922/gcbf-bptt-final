@@ -1,0 +1,88 @@
+# Probabilistic Safety Shield (5000 steps, no obstacles) — aligned env with baseline
+
+run_name: "probabilistic_safety_shield_5000"
+
+env:
+  num_agents: 2
+  area_size: 2.0
+  agent_radius: 0.2
+  comm_radius: 1.0
+  mass: 0.1
+  dt: 0.05
+  max_force: 1.0
+  cbf_alpha: 1.0
+  max_steps: 300
+
+  obstacles:
+    enabled: false
+    num_obstacles: 0
+    positions: []
+    radii: []
+
+  safety_layer:
+    enabled: true
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.08
+    safety_sharpness: 2.0
+    use_qp: false
+
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6
+      hidden_dim: 64
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256]
+      activation: relu
+      predict_alpha: true
+      predict_margin: true
+
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.2
+
+training:
+  training_steps: 5000
+  horizon_length: 50
+  eval_horizon: 300
+  eval_interval: 500
+  save_interval: 1000
+  policy_lr: 3e-4
+  cbf_lr: 1e-3
+  max_grad_norm: 1.0
+
+  goal_weight: 1.0
+  safety_weight: 2.0
+  control_weight: 0.01
+  alpha_reg_weight: 0.05
+  progress_weight: 0.1
+
+  acceleration_loss_weight: 0.02
+  jerk_weight: 0.01
+
+  use_probabilistic_shield: true
+  use_adaptive_margin: true
+  min_safety_margin: 0.05
+  max_safety_margin: 0.15
+  margin_reg_weight: 0.1
+
+evaluation:
+  episodes: 10
+  max_steps: 100
+  render: false
+
+logging:
+  use_wandb: false
+  log_interval: 100
+  save_logs: true
+
+

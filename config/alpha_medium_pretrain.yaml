@@ -1,0 +1,100 @@
+# Phase 1: Pre-training configuration (No obstacles)
+# 簡化環境，專注於基本導航和協作學習
+
+env:
+  num_agents: 8
+  area_size: 2.0  # 更大的區域，便於學習
+  car_radius: 0.05
+  comm_radius: 0.8  # 增強通信範圍以促進協作
+  mass: 0.1
+  dt: 0.03
+  cbf_alpha: 0.8  # 較低的alpha，允許更多探索
+  # 無障礙物配置
+  obstacles:
+    enabled: false
+    num_obstacles: 0
+
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6  # 修正：無障礙物環境實際是6維觀測
+      hidden_dim: 128  # 修正：應該是hidden_dim而不是hidden_dims
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      output_dim: 2
+      hidden_dim: 128
+      activation: relu
+      predict_alpha: true
+
+training:
+  training_steps: 3000  # 預訓練階段較短
+  horizon_length: 40
+  learning_rate: 0.002  # 較高學習率用於快速學習基礎
+  eval_interval: 100
+  save_interval: 500
+  
+loss_weights:
+  goal_weight: 1.0
+  safety_weight: 5.0  # 降低安全權重，允許更多探索
+  control_weight: 0.05  # 降低控制努力權重
+  jerk_weight: 0.02
+  alpha_reg_weight: 0.005
+  progress_weight: 0.2  # 較高的進度權重，鼓勵目標導向行為
+  
+cbf_alpha: 0.8
+ 
+# 簡化環境，專注於基本導航和協作學習
+
+env:
+  num_agents: 8
+  area_size: 2.0  # 更大的區域，便於學習
+  car_radius: 0.05
+  comm_radius: 0.8  # 增強通信範圍以促進協作
+  mass: 0.1
+  dt: 0.03
+  cbf_alpha: 0.8  # 較低的alpha，允許更多探索
+  # 無障礙物配置
+  obstacles:
+    enabled: false
+    num_obstacles: 0
+
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6  # 修正：無障礙物環境實際是6維觀測
+      hidden_dim: 128  # 修正：應該是hidden_dim而不是hidden_dims
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      output_dim: 2
+      hidden_dim: 128
+      activation: relu
+      predict_alpha: true
+
+training:
+  training_steps: 3000  # 預訓練階段較短
+  horizon_length: 40
+  learning_rate: 0.002  # 較高學習率用於快速學習基礎
+  eval_interval: 100
+  save_interval: 500
+  
+loss_weights:
+  goal_weight: 1.0
+  safety_weight: 5.0  # 降低安全權重，允許更多探索
+  control_weight: 0.05  # 降低控制努力權重
+  jerk_weight: 0.02
+  alpha_reg_weight: 0.005
+  progress_weight: 0.2  # 較高的進度權重，鼓勵目標導向行為
+  
+cbf_alpha: 0.8
+ 
+ 
+ 
+ 

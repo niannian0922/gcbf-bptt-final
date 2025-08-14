@@ -1,0 +1,29 @@
+env:
+  area_size: 3.0
+  car_radius: 0.15
+  comm_radius: 1.0
+  dt: 0.05
+  mass: 0.1
+  max_force: 1.0
+  max_steps: 80
+  name: DoubleIntegrator
+  num_agents: 6
+  social_radius: 0.4
+loss_weights:
+  alpha_reg_weight: 0.01
+  collaboration_weight: 0.15
+  control_weight: 0.1
+  goal_weight: 1.0
+  jerk_weight: 0.05
+  progress_weight: 0.1
+  safety_loss_threshold: 0.01
+  safety_weight: 8.0
+training:
+  eval_interval: 50
+  horizon_length: 25
+  learning_rate: 0.002
+  max_grad_norm: 1.0
+  save_interval: 100
+  start_step: 0
+  training_steps: 300
+

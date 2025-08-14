@@ -1,0 +1,263 @@
+# Single-Agent Default Configuration
+# Clean, minimalist configuration for single-agent GCBF+ training
+
+run_name: "single_agent_default"
+
+env:
+  env_type: "single_double_integrator"
+  area_size: 2.0
+  dt: 0.05
+  max_steps: 256
+  agent_radius: 0.05
+  mass: 0.1
+  max_force: 1.0
+  cbf_alpha: 1.0
+  obstacles:
+    enabled: true
+    positions: [[1.0, 1.0]]
+    radii: [0.2]
+    dynamic_count: false
+    random_count: 0
+    random_min_radius: 0.08
+    random_max_radius: 0.3
+    count_range: [2, 5]
+
+networks:
+  policy:
+    perception:
+      vision_enabled: false
+      input_dim: 6
+      hidden_dim: 64
+      num_layers: 2
+      activation: "relu"
+      use_batch_norm: false
+    policy_head:
+      input_dim: 64
+      output_dim: 2
+      hidden_dims: [128]
+      activation: "relu"
+      predict_alpha: false
+      predict_margin: false
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.15
+    safety_sharpness: 2.0
+    use_qp: false
+    probabilistic_mode: false
+    use_learned_cbf: false
+
+training:
+  training_steps: 5000
+  batch_size: 32
+  horizon_length: 50
+  eval_interval: 200
+  eval_episodes: 10
+  save_interval: 1000
+  learning_rate: 0.001
+  max_grad_norm: 1.0
+  use_lr_scheduler: false
+  lr_step_size: 2000
+  lr_gamma: 0.7
+  gradient_decay_rate: 0.95
+  use_probabilistic_shield: false
+  use_adaptive_margin: false
+  min_safety_margin: 0.05
+  max_safety_margin: 0.25
+
+loss_weights:
+  goal_weight: 1.0
+  safety_weight: 10.0
+  control_weight: 0.1
+  jerk_weight: 0.05
+  alpha_reg_weight: 0.01
+  progress_weight: 0.0
+
+logging:
+  enable_episode_logging: false
+  log_frequency: 100
+  track_metrics: ["goal_distance", "min_obstacle_distance", "success_rate", "collision_rate"]
+  save_trajectories: false
+  render_frequency: 0
+
+experiment_type: "single_agent_baseline"
+description: "Minimal single-agent config for GCBF+ with differentiable dynamics"
+version: "1.0.0"
+# Single-Agent Default Configuration
+# Clean, minimalist configuration for single-agent GCBF+ training
+# This is the foundation configuration for all future single-agent experiments
+
+# Experiment name
+run_name: "single_agent_default"
+
+# Environment parameters - Single agent only
+env:
+  # Environment type
+  env_type: "single_double_integrator"
+  
+  # Physical environment
+  area_size: 2.0                  # Environment size (2x2 area)
+  dt: 0.05                        # Simulation time step
+  max_steps: 256                  # Maximum episode length
+  
+  # Single agent parameters
+  agent_radius: 0.05              # Agent physical radius
+  mass: 0.1                       # Agent mass
+  max_force: 1.0                  # Maximum control force
+  
+  # CBF safety parameters
+  cbf_alpha: 1.0                  # CBF class-K function parameter
+  
+  # Obstacles configuration
+  obstacles:
+    # Static obstacles - keep minimal for default
+    enabled: true
+    positions: [[1.0, 1.0]]       # Single central obstacle
+    radii: [0.2]                  # Obstacle radius
+    
+    # Dynamic obstacle generation (disabled by default)
+    dynamic_count: false
+    random_count: 0
+    random_min_radius: 0.08
+    random_max_radius: 0.3
+    count_range: [2, 5]
+
+# Network Architecture - Single agent focused
+networks:
+  # Policy network configuration
+  policy:
+    # Perception module
+    perception:
+      vision_enabled: false       # Use state-based observations
+      input_dim: 6                # pos(2) + vel(2) + rel_goal(2)
+      hidden_dim: 64              # Hidden layer size
+      num_layers: 2               # Number of hidden layers
+      activation: "relu"          # Activation function
+      use_batch_norm: false       # Batch normalization
+    
+    # Policy head configuration
+    policy_head:
+      input_dim: 64               # Must match perception output
+      output_dim: 2               # Control forces (fx, fy)
+      hidden_dims: [128]          # Hidden layer dimensions
+      activation: "relu"
+      
+      # Probabilistic safety shield parameters
+      predict_alpha: false        # Policy predicts safety confidence
+      predict_margin: false       # Policy predicts adaptive safety margin
+  
+  # GCBF safety layer configuration
+  cbf:
+    # CBF parameters
+    alpha: 1.0                    # Class-K function parameter
+    eps: 0.02                     # Numerical stability epsilon
+    safety_margin: 0.15           # Base safety margin
+    safety_sharpness: 2.0         # Sharpness for probabilistic mode
+    
+    # Operating modes
+    use_qp: false                 # Use QP solver (False for differentiable)
+    probabilistic_mode: false     # Enable probabilistic safety shield
+    use_learned_cbf: false        # Learn CBF parameters
+
+# Training Configuration
+training:
+  # Training parameters
+  training_steps: 5000            # Total training steps
+  batch_size: 32                  # Parallel environments
+  horizon_length: 50              # BPTT rollout length
+  
+  # Evaluation
+  eval_interval: 200              # Steps between evaluations
+  eval_episodes: 10               # Episodes per evaluation
+  
+  # Model saving
+  save_interval: 1000             # Steps between checkpoints
+  
+  # Optimization
+  learning_rate: 0.001            # Initial learning rate
+  max_grad_norm: 1.0              # Gradient clipping threshold
+  
+  # Learning rate scheduling
+  use_lr_scheduler: false
+  lr_step_size: 2000
+  lr_gamma: 0.7
+  
+  # Training stability
+  gradient_decay_rate: 0.95       # For temporal stability
+  
+  # Safety training modes
+  use_probabilistic_shield: false  # Enable probabilistic safety
+  use_adaptive_margin: false      # Enable adaptive safety margins
+  min_safety_margin: 0.05
+  max_safety_margin: 0.25
+
+# Loss Function Weights - Balanced for single-agent learning
+loss_weights:
+  # Primary objectives
+  goal_weight: 1.0                # Goal achievement reward
+  safety_weight: 10.0             # Obstacle collision penalty
+  
+  # Control regularization
+  control_weight: 0.1             # Control effort penalty
+  jerk_weight: 0.05               # Action smoothness (anti-jerk)
+  
+  # Safety-specific terms (only used with probabilistic shield)
+  alpha_reg_weight: 0.01          # Encourage confidence in safe regions
+  
+  # Additional regularization
+  progress_weight: 0.0            # Progress toward goal (usually 0)
+
+# Safety Parameters
+safety:
+  # Collision checking
+  collision_threshold: 0.0        # Additional safety buffer
+  
+  # Risk assessment
+  risk_threshold: 0.3             # Distance threshold for "risky" states
+  
+  # Emergency behaviors
+  emergency_stop: false           # Stop on imminent collision
+
+# Logging Configuration
+logging:
+  # Episode logging
+  enable_episode_logging: false   # Detailed episode logs (expensive)
+  log_frequency: 100              # Log every N steps
+  
+  # Metrics to track
+  track_metrics: [
+    "goal_distance",
+    "min_obstacle_distance", 
+    "success_rate",
+    "collision_rate"
+  ]
+  
+  # Visualization
+  save_trajectories: false        # Save trajectory visualizations
+  render_frequency: 0             # Render every N episodes (0 = disabled)
+
+# Experimental Features
+experimental:
+  # Curriculum learning
+  use_curriculum: false
+  curriculum_stages: []
+  
+  # Advanced features
+  use_vision: false               # Vision-based observations
+  use_communication: false        # Multi-agent communication (N/A)
+  use_adversarial_training: false # Adversarial scenario generation
+  
+  # Model variations
+  model_variant: "standard"       # Options: "standard", "probabilistic", "adaptive"
+
+# Wandb configuration (optional)
+wandb_config:
+  project: "gcbf-single-agent"
+  offline: true                   # Offline logging by default
+  tags: ["single-agent", "default", "clean"]
+
+# Metadata
+experiment_type: "single_agent_baseline"
+description: "Clean, single-agent-only GCBF+ configuration serving as foundation for all single-agent experiments"
+version: "1.0.0"
+created_for: "Phase 1 single-agent refactor"

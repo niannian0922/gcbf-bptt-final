@@ -1,0 +1,111 @@
+# FINAL TRAINING Configuration for Championship Model
+# Ultimate Training: Dual Innovation (Safety-Gated Alpha + Adaptive Safety Margin)
+# Goal: Push the performance to absolute limits with extended training
+
+# 实验名称 - 标记为最终决战版本
+run_name: "FINAL_TRAINING_CHAMPIONSHIP"
+
+# 环境参数 - 使用已验证的最佳配置
+env:
+  num_agents: 2                   # 减少智能体数量以简化学习
+  area_size: 2.0                  # 增大环境以提供更多空间
+  agent_radius: 0.2               # 智能体半径
+  comm_radius: 1.0                # 通信半径
+  mass: 0.1                       # 智能体质量
+  dt: 0.05                        # 仿真时间步长
+  max_force: 1.0                  # 最大力
+  cbf_alpha: 1.0                  # CBF安全约束的Alpha参数
+  max_steps: 300                  # 最大步数
+
+  # 障礙物配置（禁用以匹配6D模型）
+  obstacles:
+    enabled: false
+    num_obstacles: 0
+    positions: []
+    radii: []
+
+# 网络参数（匹配已训练模型架构）
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6                # 无障碍物环境：state(4) + goal(2)
+      hidden_dim: 64
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256]
+      activation: relu
+      predict_alpha: true
+      predict_margin: true        # 🚀 NEW: 启用动态安全裕度预测
+      margin_hidden_dim: 64       # 动态裕度网络的隐藏层维度
+
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.2            # 基础安全裕度（将被动态覆盖）
+    use_qp: true
+
+# 训练参数 - 🏆 FINAL CHAMPIONSHIP TRAINING
+training:
+  training_steps: 20000           # 🚀 10倍训练步数 - 推向极限！
+  horizon_length: 50              # BPTT rollout长度
+  eval_horizon: 300               # 评估rollout长度
+  eval_interval: 500              # 评估间隔 - 增加间隔以适应长训练
+  save_interval: 2000             # 模型保存间隔 - 增加间隔
+  learning_rate: 0.0005           # 降低学习率以获得更稳定的训练
+  max_grad_norm: 1.0              # 梯度裁剪
+  
+  # 学习率调度器 - 适应长训练
+  use_lr_scheduler: true
+  lr_step_size: 5000              # 增加调度间隔
+  lr_gamma: 0.8
+  
+  # 时序稳定性的梯度衰减
+  gradient_decay_rate: 0.95
+
+# 损失权重 - 基于之前成功的配置
+loss_weights:
+  # 调整权重 - 基于前面的成功配置
+  goal_weight: 0.7                # 平衡的目标导向
+  safety_weight: 10.0             # 保持高安全权重
+  
+  # 控制正则化权重
+  acceleration_loss_weight: 0.005 # 更少加速度约束
+  jerk_loss_weight: 0.01          # 显著减少抖动约束
+  
+  # 其他现有权重
+  control_weight: 0.1             # 控制努力损失
+  alpha_reg_weight: 0.01          # alpha正则化权重
+  progress_weight: 0.05           # 进度奖励权重
+  
+  # 🚀 NEW: 动态安全裕度正则化权重
+  margin_reg_weight: 0.05         # 用于约束动态裕度的新损失项权重
+
+# 🚀 CORE INNOVATION 1: 自适应安全裕度参数
+use_adaptive_margin: true         # 激活新逻辑
+min_safety_margin: 0.15           # 动态裕度的最小值
+max_safety_margin: 0.4            # 动态裕度的最大值
+
+# 🚀 CORE INNOVATION 2: 继承安全门控创新
+use_safety_gated_alpha_reg: true  # 保持之前的创新
+safety_loss_threshold: 0.01       # 安全阈值
+
+# CBF参数
+cbf_alpha: 1.0
+
+# 日志配置
+enable_episode_logging: true
+
+# Wandb配置
+wandb_config:
+  project: "gcbf-final-championship-training"
+  offline: true                   # 离线模式
+
+# 实验元数据
+experiment_type: "final_championship_training"
+description: "FINAL CHAMPIONSHIP TRAINING: Dual Innovation (Safety-Gated Alpha + Adaptive Safety Margin) - 20K steps training to push performance to absolute limits"

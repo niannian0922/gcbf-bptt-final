@@ -1,0 +1,120 @@
+# Curriculum Learning Phase 3: Ultimate Challenge Configuration
+# MASTERY PHASE: Maximum complexity and environmental diversity
+# Strategy: Test and refine all learned skills under extreme conditions
+
+# 实验名称
+run_name: "curriculum_phase_3_mastery"
+
+# PHASE 3 ENVIRONMENT: Maximum complexity and diversity
+env:
+  num_agents: 2                   # 保持智能体数量以匹配模型
+  area_size: 2.0                  # 环境大小
+  agent_radius: 0.2               # 智能体半径
+  comm_radius: 1.0                # 通信半径
+  mass: 0.1                       # 智能体质量
+  dt: 0.05                        # 仿真时间步长
+  max_force: 1.0                  # 最大力
+  cbf_alpha: 1.0                  # CBF安全约束的Alpha参数
+  max_steps: 300                  # 最大步数
+
+  # PHASE 3: Maximum complexity obstacle configuration
+  obstacles:
+    enabled: true                 # 启用障碍物
+    dynamic_count: true           # 动态障碍物数量
+    count_range: [2, 8]           # PHASE 3: 2-8个障碍物 (最高难度)
+    
+    # Maximum obstacle diversity
+    random: true                  # 启用随机障碍物
+    random_min_radius: 0.08       # 最小半径范围 (最大变化性)
+    random_max_radius: 0.5        # 最大半径 (最高挑战)
+    
+    # 传统配置保持为空
+    num_obstacles: 0
+    positions: []
+    radii: []
+
+# 网络参数 (继承冠军模型架构)
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 9                # 有障碍物观测维度
+      hidden_dim: 64
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256]
+      activation: relu
+      predict_alpha: true
+      predict_margin: true        # 保持自适应安全裕度
+      margin_hidden_dim: 64
+
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.2            # 基础安全裕度
+    use_qp: true
+
+# PHASE 3训练参数 - 终极阶段
+training:
+  training_steps: 8000            # PHASE 3: 终极训练步数
+  horizon_length: 50              # BPTT rollout长度
+  eval_horizon: 300               # 评估rollout长度
+  eval_interval: 200              # 评估间隔
+  save_interval: 1000             # 模型保存间隔
+  learning_rate: 0.0003           # 较低学习率精细调整
+  max_grad_norm: 1.0              # 梯度裁剪
+  
+  # 学习率调度器
+  use_lr_scheduler: true
+  lr_step_size: 2000              # 学习率调整间隔
+  lr_gamma: 0.9                   # 温和衰减
+  
+  # 时序稳定性的梯度衰减
+  gradient_decay_rate: 0.95
+
+# 损失权重 - 终极阶段精细策略
+loss_weights:
+  # 基础权重 - 最终平衡
+  goal_weight: 0.6                # 适度降低目标权重 (应对高难度)
+  safety_weight: 15.0             # 最高安全权重 (应对最多障碍物)
+  
+  # 控制正则化权重 - 最强约束
+  acceleration_loss_weight: 0.008 # 最高加速度约束
+  jerk_loss_weight: 0.015         # 最高抖动约束
+  
+  # 其他权重
+  control_weight: 0.1             # 控制努力损失
+  alpha_reg_weight: 0.01          # alpha正则化权重
+  progress_weight: 0.03           # 减少进度权重 (避免急躁)
+  
+  # 自适应安全裕度权重
+  margin_reg_weight: 0.08         # 最高裕度正则化
+
+# CORE INNOVATION 1: 自适应安全裕度参数
+use_adaptive_margin: true         # 激活自适应裕度
+min_safety_margin: 0.12           # 提高最小裕度 (应对高密度障碍物)
+max_safety_margin: 0.6            # 最大裕度范围 (最大适应性)
+
+# CORE INNOVATION 2: 安全门控Alpha正则化
+use_safety_gated_alpha_reg: true  # 保持安全门控创新
+safety_loss_threshold: 0.015      # 严格的安全阈值
+
+# CBF参数
+cbf_alpha: 1.0
+
+# 日志配置
+enable_episode_logging: true
+
+# Wandb配置
+wandb_config:
+  project: "gcbf-curriculum-phase3"
+  offline: true                   # 离线模式
+
+# 实验元数据
+experiment_type: "curriculum_learning_phase_3"
+description: "CURRICULUM PHASE 3: Ultimate mastery training with 2-8 obstacles, maximum environmental diversity. Goal: Achieve expert-level performance under extreme conditions."

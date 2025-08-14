@@ -1,0 +1,102 @@
+# 🛡️ PROBABILISTIC SAFETY SHIELD 概率安全防护罩配置
+# 重大架构重构：将GCBF+转换为概率安全防护罩
+
+description: "🛡️ 概率安全防护罩 - 解耦安全与效率目标的革命性架构"
+run_name: "probabilistic_safety_shield"
+
+# 环境参数
+env:
+  num_agents: 2
+  area_size: 2.0
+  agent_radius: 0.2
+  comm_radius: 1.0
+  mass: 0.1
+  dt: 0.05
+  max_force: 1.0
+  cbf_alpha: 1.0
+  max_steps: 200
+
+  # 障碍物配置 - 增加挑战性以测试防护罩
+  obstacles:
+    enabled: true
+    count: 2
+    radius: 0.1
+
+  # GCBF安全层配置
+  safety_layer:
+    enabled: true
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.08
+    # 🛡️ 概率防护罩特有参数
+    safety_sharpness: 2.0  # k参数：控制安全信心分数过渡的锐利度
+    use_qp: false  # 简化计算，不使用QP求解器
+
+# 网络参数
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 9  # 位置(2) + 速度(2) + 目标(2) + 障碍物(3)
+      hidden_dim: 64
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256]
+      activation: relu
+      predict_alpha: true
+      predict_margin: true
+
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.2
+
+# 🛡️ 概率安全防护罩训练配置
+training:
+  training_steps: 2000  # 较短的训练以快速验证
+  horizon_length: 20
+  eval_interval: 400
+  save_interval: 800
+  eval_horizon: 30
+  max_grad_norm: 1.0
+
+  # 学习率
+  policy_lr: 3e-4
+  cbf_lr: 1e-3  # CBF网络现在需要更小心的训练作为风险评估器
+
+  # 🛡️ 新的损失权重配置 - 专为概率防护罩调整
+  goal_weight: 1.0
+  safety_weight: 2.0     # 增加安全权重，因为现在训练风险评估器
+  control_weight: 0.01
+  alpha_reg_weight: 0.05  # 仍然鼓励效率
+  progress_weight: 0.1
+
+  # 控制正则化
+  acceleration_loss_weight: 0.02
+  jerk_weight: 0.01
+
+  # 🛡️ 概率防护罩特有参数
+  use_probabilistic_shield: true  # 启用新架构
+
+  # 自适应安全裕度（与防护罩配合）
+  use_adaptive_margin: true
+  min_safety_margin: 0.05
+  max_safety_margin: 0.15
+  margin_reg_weight: 0.1
+
+# 评估配置
+evaluation:
+  episodes: 10
+  max_steps: 100
+  render: false
+
+# 日志配置
+logging:
+  use_wandb: false  # 离线模式
+  log_interval: 100
+  save_logs: true

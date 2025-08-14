@@ -1,0 +1,97 @@
+# Smooth Control Training Configuration
+# Focus on training stable, smooth trajectories with regularization
+
+# 实验名称
+run_name: "Smooth_Control_BPTT"
+
+# 环境参数
+env:
+  num_agents: 2                   # 减少智能体数量以简化学习
+  area_size: 2.0                  # 增大环境以提供更多空间
+  agent_radius: 0.2               # 智能体半径
+  comm_radius: 1.0                # 通信半径
+  mass: 0.1                       # 智能体质量
+  dt: 0.05                        # 仿真时间步长
+  max_force: 1.0                  # 最大力
+  cbf_alpha: 1.0                  # CBF安全约束的Alpha参数
+  max_steps: 300                  # 最大步数
+
+  # 障礙物配置（禁用以匹配6D模型）
+  obstacles:
+    enabled: false
+    num_obstacles: 0
+    positions: []
+    radii: []
+
+# 网络参数（匹配已训练模型架构）
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6                # 无障碍物环境：state(4) + goal(2)
+      hidden_dim: 64
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256]
+      activation: relu
+      predict_alpha: true
+
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.2
+    use_qp: true
+
+# 训练参数
+training:
+  training_steps: 2000            # 短期训练用于测试平滑性
+  horizon_length: 50              # BPTT rollout长度
+  eval_horizon: 300               # 评估rollout长度
+  eval_interval: 100              # 评估间隔
+  save_interval: 500              # 模型保存间隔
+  learning_rate: 0.0005           # 降低学习率以获得更稳定的训练
+  max_grad_norm: 1.0              # 梯度裁剪
+  
+  # 学习率调度器
+  use_lr_scheduler: true
+  lr_step_size: 1000
+  lr_gamma: 0.8
+  
+  # 时序稳定性的梯度衰减
+  gradient_decay_rate: 0.95
+
+# 损失权重 - 重点关注平滑控制
+loss_weights:
+  # 调整现有权重
+  goal_weight: 0.1                # 降低10倍 - 暂时不急于到达目标
+  safety_weight: 10.0             # 保持高安全权重
+  
+  # 新增控制正则化权重
+  acceleration_loss_weight: 0.01  # 加速度损失权重
+  jerk_loss_weight: 0.05          # 抖动损失权重
+  
+  # 其他现有权重
+  control_weight: 0.1             # 控制努力损失
+  alpha_reg_weight: 0.01          # alpha正则化权重
+  progress_weight: 0.05           # 进度奖励权重
+
+# CBF参数
+cbf_alpha: 1.0
+
+# 日志配置
+enable_episode_logging: true
+log_dir: "logs/smooth_control_training"
+
+# Wandb配置
+wandb_config:
+  project: "gcbf-smooth-control"
+  offline: true                   # 离线模式
+
+# 实验元数据
+experiment_type: "control_regularization"
+description: "Training with acceleration and jerk penalties for smooth trajectories"

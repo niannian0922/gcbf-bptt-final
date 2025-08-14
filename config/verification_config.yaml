@@ -1,0 +1,56 @@
+# Configuration file for verification test
+run_name: "GCBF+_BPTT_Verification"
+
+# Environment parameters
+env:
+  num_agents: 4                  # Small number of agents for faster testing
+  area_size: 1.0                 # Size of the square environment
+  car_radius: 0.05               # Radius of each agent
+  drone_radius: 0.05             # Radius for drone agents
+  comm_radius: 0.5               # Communication radius
+  mass: 0.1                      # Mass of each agent
+  dt: 0.03                       # Simulation timestep
+  max_steps: 100                 # Maximum number of steps per episode
+  cbf_alpha: 1.0                 # Alpha parameter for CBF safety constraints
+
+# Networks parameters
+networks:
+  # Policy network parameters
+  policy:
+    node_dim: 7                  # Position (2) + Velocity (2) + Goal direction (2) + Agent indicator (1)
+    edge_dim: 4                  # Relative position (2) + Relative velocity (2)
+    hidden_dim: 64               # Hidden dimension size
+    n_layers: 2                  # Number of layers
+    msg_hidden_sizes: [64, 64]   # Message network hidden sizes
+    aggr_hidden_sizes: [64]      # Aggregation network hidden sizes
+    update_hidden_sizes: [64, 64]# Update network hidden sizes
+  
+  # CBF network parameters
+  cbf:
+    node_dim: 7                  # Position (2) + Velocity (2) + Goal direction (2) + Agent indicator (1)
+    edge_dim: 4                  # Relative position (2) + Relative velocity (2)
+    hidden_dim: 64               # Hidden dimension size
+    n_layers: 2                  # Number of layers
+    msg_hidden_sizes: [64, 64]   # Message network hidden sizes
+    aggr_hidden_sizes: [64]      # Aggregation network hidden sizes
+    update_hidden_sizes: [64, 64]# Update network hidden sizes
+
+# Training parameters
+training:
+  training_steps: 10             # Very small number of steps for verification
+  horizon_length: 20             # Short horizon for faster training
+  eval_horizon: 50               # Evaluation horizon length
+  eval_interval: 5               # Evaluate every 5 steps
+  save_interval: 10              # Save model every 10 steps
+  learning_rate: 0.001           # Learning rate
+  max_grad_norm: 1.0             # Gradient clipping norm
+  cbf_alpha: 1.0                 # Alpha parameter for CBF condition
+  
+  # Gradient decay for temporal stability
+  gradient_decay_rate: 0.9       # Rate at which gradients decay through time (more aggressive for short verification)
+  
+  # Loss weights
+  goal_weight: 1.0               # Weight for goal reaching reward
+  safety_weight: 10.0            # Weight for safety violations
+  control_weight: 0.1            # Weight for control effort 
+  alpha_reg_weight: 0.02         # Weight for alpha regularization (slightly higher for verification) 

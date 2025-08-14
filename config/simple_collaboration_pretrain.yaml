@@ -1,0 +1,108 @@
+# Phase 1: Simple collaboration pre-training (No obstacles)
+# 專注於多智能體協作的基礎學習
+
+env:
+  area_size: 4.0  # 大區域，便於學習協作
+  car_radius: 0.15
+  comm_radius: 1.2  # 增強通信範圍
+  dt: 0.05
+  mass: 0.1
+  max_force: 1.0
+  max_steps: 100  # 較長的時間範圍
+  name: DoubleIntegrator
+  num_agents: 6
+  social_radius: 0.6  # 較大的社交半徑，促進協作
+  # 無障礙物
+  obstacles:
+    enabled: false
+
+loss_weights:
+  alpha_reg_weight: 0.005
+  collaboration_weight: 0.2  # 增強協作權重
+  control_weight: 0.05
+  goal_weight: 1.0
+  jerk_weight: 0.02
+  progress_weight: 0.25  # 高進度權重，鼓勵向目標移動
+  safety_loss_threshold: 0.01
+  safety_weight: 4.0  # 降低安全權重
+
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6  # 修正：無障礙物環境實際是6維觀測
+      hidden_dim: 128  # 修正：應該是hidden_dim而不是hidden_dims
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      output_dim: 2
+      hidden_dim: 128
+      activation: relu
+      predict_alpha: true
+
+training:
+  eval_interval: 50
+  horizon_length: 30
+  learning_rate: 0.003  # 較高學習率
+  max_grad_norm: 1.0
+  save_interval: 500
+  start_step: 0
+  training_steps: 2500  # 預訓練階段步數
+ 
+# 專注於多智能體協作的基礎學習
+
+env:
+  area_size: 4.0  # 大區域，便於學習協作
+  car_radius: 0.15
+  comm_radius: 1.2  # 增強通信範圍
+  dt: 0.05
+  mass: 0.1
+  max_force: 1.0
+  max_steps: 100  # 較長的時間範圍
+  name: DoubleIntegrator
+  num_agents: 6
+  social_radius: 0.6  # 較大的社交半徑，促進協作
+  # 無障礙物
+  obstacles:
+    enabled: false
+
+loss_weights:
+  alpha_reg_weight: 0.005
+  collaboration_weight: 0.2  # 增強協作權重
+  control_weight: 0.05
+  goal_weight: 1.0
+  jerk_weight: 0.02
+  progress_weight: 0.25  # 高進度權重，鼓勵向目標移動
+  safety_loss_threshold: 0.01
+  safety_weight: 4.0  # 降低安全權重
+
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 6  # 修正：無障礙物環境實際是6維觀測
+      hidden_dim: 128  # 修正：應該是hidden_dim而不是hidden_dims
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      output_dim: 2
+      hidden_dim: 128
+      activation: relu
+      predict_alpha: true
+
+training:
+  eval_interval: 50
+  horizon_length: 30
+  learning_rate: 0.003  # 較高學習率
+  max_grad_norm: 1.0
+  save_interval: 500
+  start_step: 0
+  training_steps: 2500  # 預訓練階段步數
+ 
+ 
+ 
+ 

@@ -1,0 +1,135 @@
+# Baseline on CUDA-accelerated platform (Rebirth Baseline)
+# Comprehensive, single-agent configuration compatible with CUDA differentiable engine
+
+run_name: "baseline_cuda_platform"
+
+# Device selection
+device: "cuda"
+
+# Trainer optional top-level toggles (read via self.config.get)
+enable_episode_logging: false
+cbf_alpha: 1.0
+use_safety_gated_alpha_reg: false
+safety_loss_threshold: 0.01
+margin_reg_weight: 0.0
+
+env:
+  env_type: "single_double_integrator"
+  area_size: 2.0
+  dt: 0.05
+  max_steps: 256
+  agent_radius: 0.05
+  mass: 0.1
+  max_force: 1.0
+  cbf_alpha: 1.0
+  # Vision block is optional; disabled by default
+  # vision:
+  #   enabled: false
+  #   image_size: 64
+  #   camera_fov: 90.0
+  #   camera_range: 3.0
+  obstacles:
+    enabled: true
+    positions: [[1.0, 1.0]]
+    radii: [0.2]
+    dynamic_count: false
+    random_count: 0
+    random_min_radius: 0.08
+    random_max_radius: 0.3
+    count_range: [2, 5]
+
+networks:
+  policy:
+    # Perception module (state-based; 2 pos + 2 vel + 2 rel_goal = 6)
+    perception:
+      vision_enabled: false
+      input_dim: 6
+      hidden_dim: 64
+      num_layers: 2
+      activation: "relu"
+      use_batch_norm: false
+    # Memory module (REQUIRED: hidden_dim)
+    memory:
+      # input_dim will be set from perception.output_dim in code; provide hidden_dim here
+      hidden_dim: 128
+      num_layers: 1
+      dropout: 0.0
+    # Policy head
+    policy_head:
+      # input_dim will be set from memory.hidden_dim in code
+      output_dim: 2
+      hidden_dims: [128]
+      activation: "relu"
+      output_activation: null
+      action_scale: 1.0
+      predict_alpha: false
+      predict_margin: false
+  cbf:
+    alpha: 1.0
+    eps: 0.02
+    safety_margin: 0.15
+    safety_sharpness: 2.0
+    use_qp: false
+    probabilistic_mode: false
+    use_learned_cbf: false
+
+training:
+  training_steps: 10000
+  batch_size: 64
+  horizon_length: 64
+  eval_interval: 200
+  eval_episodes: 10
+  eval_horizon: 100
+  save_interval: 1000
+  learning_rate: 0.001
+  max_grad_norm: 1.0
+  use_lr_scheduler: false
+  lr_step_size: 2000
+  lr_gamma: 0.7
+  gradient_decay_rate: 0.95
+  use_probabilistic_shield: false
+  use_adaptive_margin: false
+  min_safety_margin: 0.05
+  max_safety_margin: 0.25
+
+loss_weights:
+  goal_weight: 0.7
+  safety_weight: 10.0
+  control_weight: 0.1
+  jerk_weight: 0.01
+  alpha_reg_weight: 0.01
+  progress_weight: 0.0
+  acceleration_loss_weight: 0.01
+
+safety:
+  collision_threshold: 0.0
+  risk_threshold: 0.3
+  emergency_stop: false
+
+logging:
+  enable_episode_logging: false
+  log_frequency: 100
+  track_metrics:
+    - "goal_distance"
+    - "min_obstacle_distance"
+    - "success_rate"
+    - "collision_rate"
+  save_trajectories: false
+  render_frequency: 0
+
+experimental:
+  use_curriculum: false
+  curriculum_stages: []
+  use_vision: false
+  use_communication: false
+  use_adversarial_training: false
+  model_variant: "standard"
+
+wandb_config:
+  project: "gcbf-single-agent"
+  offline: true
+  tags: ["single-agent", "baseline", "cuda"]
+
+experiment_type: "baseline_cuda"
+description: "Rebirth Baseline trained on CUDA-accelerated differentiable dynamics engine"
+version: "1.0.0"

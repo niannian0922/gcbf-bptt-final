@@ -1,0 +1,35 @@
+# High alpha with obstacles
+
+env:
+  num_agents: 8
+  area_size: 1.0
+  car_radius: 0.05
+  comm_radius: 0.5
+  mass: 0.1
+  dt: 0.03
+  cbf_alpha: 2.0  # 高alpha值
+  obstacles:
+    enabled: true
+    num_obstacles: 3
+    obstacle_size: 0.15
+
+networks:
+  policy:
+    input_dim: 9
+    node_dim: 7
+    edge_dim: 4
+    hidden_dim: 64
+    n_layers: 2
+    msg_hidden_sizes: [64, 64]
+    aggr_hidden_sizes: [64]
+    update_hidden_sizes: [64, 64]
+
+training:
+  training_steps: 5000
+  horizon_length: 50
+  learning_rate: 0.001
+  goal_weight: 1.0
+  safety_weight: 10.0
+  control_weight: 0.1
+  jerk_weight: 0.05
+  cbf_alpha: 2.0 

@@ -1,0 +1,31 @@
+device: cuda
+
+env:
+  dt: 0.02
+  state_dim: 4
+  action_dim: 2
+  u_max: 3.0
+  goal_position: [1.0, 1.0]
+  obstacle_center: [0.0, 0.0]
+  obstacle_radius: 0.5
+  init_state: [ -2.0, -2.0, 0.0, 0.0 ]
+
+trainer:
+  run_name: demo
+  log_dir: logs
+  trainer:
+    num_steps: 100
+  bptt:
+    horizon_length: 64
+  optim:
+    lr: 0.001
+
+policy:
+  hidden_dim: 64
+
+wandb:
+  project: "gcbf-bptt-final"
+  entity: "YOUR_WANDB_USERNAME"
+  mode: "offline"
+
+

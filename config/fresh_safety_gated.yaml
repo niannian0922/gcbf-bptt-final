@@ -1,0 +1,60 @@
+# Fresh Safety-Gated Training Configuration
+env:
+  env_type: double_integrator
+  num_agents: 8
+  max_episode_steps: 200
+  world_size: 10.0
+  agent_radius: 0.3
+  obstacles: []
+  dynamic_obstacles: false
+  use_random_start: true
+
+model:
+  perception:
+    use_vision: false
+    input_dim: 6
+    output_dim: 128
+    hidden_dims: [256, 256]
+    activation: relu
+  
+  memory:
+    hidden_dim: 128
+    num_layers: 1
+  
+  policy_head:
+    output_dim: 2
+    hidden_dims: [256]
+    activation: relu
+    predict_alpha: true
+  
+  cbf:
+    input_dim: 6
+    hidden_dims: [256, 256]
+    output_dim: 1
+    activation: relu
+
+training:
+  training_steps: 10000
+  horizon_length: 50
+  batch_size: 32
+  learning_rate: 0.001
+  device: auto
+  max_grad_norm: 1.0
+  eval_interval: 100
+  save_interval: 1000
+  start_step: 0
+  safety_loss_threshold: 0.01  # Safety-Gated threshold
+
+loss_weights:
+  goal_weight: 1.0
+  safety_weight: 10.0
+  control_effort_weight: 0.1
+  jerk_weight: 0.01
+  alpha_reg_weight: 0.1
+  safety_loss_threshold: 0.01
+
+logging:
+  use_wandb: true
+  wandb_offline: true
+  project_name: "Safety-Gated-GCBF"
+  run_name: "Fresh_SafetyGated_Complete"

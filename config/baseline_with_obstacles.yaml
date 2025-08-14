@@ -1,0 +1,63 @@
+# Baseline Evaluation Configuration with Obstacles
+# 2-agent, 1-obstacle scenario as requested
+
+# Environment parameters
+env:
+  num_agents: 2                   # Number of agents in the environment
+  area_size: 2.0                  # Size of the square environment  
+  agent_radius: 0.2               # Agent radius for collision detection
+  comm_radius: 1.0                # Communication radius for graph construction
+  mass: 0.1                       # Mass of each agent
+  dt: 0.05                        # Simulation time step
+  max_force: 1.0                  # Maximum force magnitude
+  cbf_alpha: 1.0                  # CBF safety constraint alpha parameter
+  max_steps: 300                  # Maximum episode length
+  
+  # Obstacle configuration (1 obstacle as requested)
+  obstacles:
+    enabled: true
+    num_obstacles: 1
+    positions: [[0.0, 0.0]]       # Single obstacle at center
+    radii: [0.3]                  # Obstacle radius
+  
+  # Goal configuration  
+  goal_distance_threshold: 0.2    # Distance threshold for goal achievement
+
+# Network parameters (for 9D input with obstacles)
+networks:
+  policy:
+    perception:
+      use_vision: false
+      input_dim: 9                # state(4) + goal(2) + obstacle(3)
+      hidden_dim: 128
+      activation: relu
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128              # From memory module
+      output_dim: 2               # 2D actions (fx, fy)
+      hidden_dims: [256]          # Single hidden layer
+      activation: relu
+      predict_alpha: true
+
+  cbf:
+    input_dim: 9                  # Same as policy input
+    hidden_dim: 128
+    output_dim: 1                 # CBF value
+    num_layers: 2
+
+# Training/Evaluation parameters
+training:
+  learning_rate: 0.001
+  eval_horizon: 300               # Maximum steps per evaluation episode
+  gradient_decay_rate: 0.95
+  use_gradient_decay: true
+
+# Logging configuration
+enable_episode_logging: true
+log_dir: "./evaluation_results"
+
+# Experiment metadata
+run_name: "Baseline_With_Obstacles_Evaluation"
+experiment_type: "system_verification_with_obstacles"
