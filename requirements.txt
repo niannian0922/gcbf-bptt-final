@@ -21,7 +21,7 @@ rich>=13.5.3
 ipdb>=0.13.13
 colour>=0.1.5
 control>=0.9.4
-jaxproxqp @ git+https://github.com/oswinso/jaxproxqp.git
+
 
 # Additional requirements for BPTT implementation
 torch>=2.0.0
