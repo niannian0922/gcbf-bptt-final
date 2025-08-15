@@ -26,8 +26,8 @@ env:
 
 # --- POLICY CONFIGURATION (Required by BPTTPolicy) ---
 policy:
+  use_adaptive_loss_weights: true  # CRITICAL: Master switch for adaptive weights
   hidden_dim: 128
-  use_adaptive_loss_weights: true
   type: "bptt"
   
   # Perception module configuration
@@ -54,13 +54,13 @@ policy:
   
   # Policy head module configuration - WITH ALPHA PREDICTION
   policy_head:
+    predict_alpha: true  # CRITICAL: Master switch for alpha prediction
     input_dim: 128
     output_dim: 2
     hidden_dims: [256, 256]
     activation: "relu"
     output_activation: null
     action_scale: 1.0
-    predict_alpha: true
     alpha_hidden_dim: 64
 
 # --- DUAL NETWORK ARCHITECTURE ---
