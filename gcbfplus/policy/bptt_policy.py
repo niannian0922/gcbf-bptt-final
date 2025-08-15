@@ -495,6 +495,10 @@ class BPTTPolicy(nn.Module):
         if self.use_adaptive_loss_weights:
             # Filter for loss ranges defined as lists in the config
             loss_ranges = {k: v for k, v in self.config.get('losses', {}).items() if isinstance(v, list)}
+            
+            # NEW: Add an assertion for robust error checking
+            assert loss_ranges, "Adaptive loss weights enabled, but no loss ranges (e.g., goal_weight: [min, max]) were found in the config's 'losses' section."
+            
             self.loss_weight_head = LossWeightHead(self.memory.hidden_dim, loss_ranges)
         else:
             self.loss_weight_head = None

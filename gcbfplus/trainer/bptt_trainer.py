@@ -66,8 +66,8 @@ class BPTTTrainer:
         obs_dim = int(self.env.observation_shape[0]) if isinstance(self.env.observation_shape, tuple) else int(self.env.observation_shape)
         action_dim = int(self.env.action_shape[0]) if isinstance(self.env.action_shape, tuple) else int(self.env.action_shape)
 
-        # NEW: We now pass the entire policy config dictionary to the advanced BPTTPolicy
-        self.policy = BPTTPolicy(policy_cfg).to(self.device)
+        # The policy now requires the full config to find the 'losses' block for the adaptive weight head
+        self.policy = BPTTPolicy(self.config).to(self.device)
 
         self.optimizer = Adam(self.policy.parameters(), lr=self.learning_rate)
 
