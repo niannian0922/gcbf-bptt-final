@@ -11,6 +11,12 @@ from ..policy.bptt_policy import BPTTPolicy
 from ..policy.guardian_network import GuardianNetwork
 
 
+def check_nan(tensor: torch.Tensor, name: str):
+    """Checks if a tensor contains NaN or Inf values and raises an error if it does."""
+    if not torch.all(torch.isfinite(tensor)):
+        raise ValueError(f"NaN or Inf detected in '{name}'")
+
+
 class SimpleMLPPolicy(nn.Module):
     def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 64) -> None:
         super().__init__()
@@ -116,23 +122,39 @@ class BPTTTrainer:
             observations = self.env.get_observation(state)
             if hasattr(observations, 'to'):
                 observations = observations.to(self.device)
+            
+            # CHECKPOINT 1: After getting observations
+            check_nan(observations, "observations")
 
             # --- GEMINI PROTOCOL DECISION PIPELINE ---
             # 2. The Pilot Network proposes a nominal action
             policy_outputs = self.pilot_policy(observations)
             nominal_action = policy_outputs['action']
+            
+            # CHECKPOINT 2: After the policy call
+            check_nan(nominal_action, "policy_outputs[action]")
 
             # 3. The Guardian Network predicts the safety value 'h'
             predicted_h = self.guardian_network(observations)
+            
+            # CHECKPOINT 2b: After guardian network call
+            check_nan(predicted_h, "predicted_h")
 
             # 4. The QP Arbiter (Placeholder): For now, we use a "pass-through"
             #    This allows us to test the training loop before integrating a complex QP solver.
             safe_action_to_execute = nominal_action
             # --- END OF GEMINI PROTOCOL DECISION PIPELINE ---
+            
+            # CHECKPOINT 3: Before the environment step
+            check_nan(safe_action_to_execute, "safe_action_to_execute")
 
             # 5. Execute the action and get the next state
             step_result = self.env.step(state, safe_action_to_execute)  # Removed alpha passing
             next_state = step_result.next_state
+            
+            # CHECKPOINT 4: After the environment step
+            check_nan(next_state.position, "next_state.position")
+            check_nan(next_state.velocity, "next_state.velocity")
 
             # --- DUAL LOSS CALCULATION ---
             losses_cfg = self.config.get('losses', {})
@@ -157,6 +179,9 @@ class BPTTTrainer:
                     # No obstacles, h should be large (safe)
                     true_h = torch.ones_like(predicted_h) * 10.0
             
+            # CHECKPOINT: After computing true_h
+            check_nan(true_h, "true_h")
+            
             guardian_loss = h_regression_weight * F.mse_loss(predicted_h, true_h.detach())
 
             # 7. Pilot's Loss (Efficiency-driven):
@@ -167,6 +192,10 @@ class BPTTTrainer:
             pilot_loss = track_cost
 
             # --- END OF DUAL LOSS CALCULATION ---
+
+            # CHECKPOINT 5: After calculating the losses
+            check_nan(guardian_loss, "guardian_loss")
+            check_nan(pilot_loss, "pilot_loss")
 
             # Update cumulative losses for logging
             cumulative_guardian_loss += guardian_loss
