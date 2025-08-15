@@ -6,7 +6,7 @@ device: "cuda"
 
 evaluation:
   run_name: "final_champion_v8_gemini"
-  model_step: 20000
+  model_step: 12000
   num_episodes: 1000
   device: "cuda"
 
@@ -27,6 +27,7 @@ env:
 # --- POLICY CONFIGURATION (Required by BPTTPolicy) ---
 policy:
   hidden_dim: 128
+  use_adaptive_loss_weights: true
   type: "bptt"
   
   # Perception module configuration
@@ -51,7 +52,7 @@ policy:
     num_layers: 1
     dropout: 0.0
   
-  # Policy head module configuration - Pure Pilot Network
+  # Policy head module configuration - WITH ALPHA PREDICTION
   policy_head:
     input_dim: 128
     output_dim: 2
@@ -59,6 +60,8 @@ policy:
     activation: "relu"
     output_activation: null
     action_scale: 1.0
+    predict_alpha: true
+    alpha_hidden_dim: 64
 
 # --- DUAL NETWORK ARCHITECTURE ---
 networks:
@@ -90,16 +93,19 @@ qp_arbiter:
 
 # --- DUAL LOSS FUNCTION CONFIGURATION ---
 losses:
-  # Pilot's Loss Function (Efficiency-driven)
-  goal_weight: 1.0
-  progress_reward_weight: 1.0
-  jerk_loss_weight: 0.1
-
-  # Guardian's Loss Function (Safety-driven)
+  # Dynamic Loss Weights (for Adaptive Policy)
+  goal_weight: [0.5, 5.0]
+  jerk_loss_weight: [0.01, 0.5]
+  alpha_reg_weight: [0.01, 0.2]
+  
+  # Static Loss Weights
+  collision_weight: 0.0
+  safety_weight: 5.0
+  safety_gate_threshold: 0.1
   h_regression_weight: 1.0
 
 training:
-  training_steps: 20000
+  training_steps: 12000
   horizon_length: 64
   pilot_lr: 0.0005
   guardian_lr: 0.001

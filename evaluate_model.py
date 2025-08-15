@@ -51,7 +51,7 @@ class ModelEvaluator:
         eval_config = config.get('evaluation', {})
         self.num_episodes = eval_config.get('num_episodes', 500)
         self.run_name = eval_config.get('run_name', 'final_config')
-        self.model_step = eval_config.get('model_step', 4000)
+        self.model_step = eval_config.get('model_step', 12000)
         
         # Initialize environment
         self.env = SingleDoubleIntegratorEnv(config.get('env', {}), device=device)

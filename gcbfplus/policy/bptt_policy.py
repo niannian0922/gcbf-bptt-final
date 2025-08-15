@@ -304,8 +304,18 @@ class PolicyHeadModule(nn.Module):
         output_activation = config.get('output_activation', None)
         self.output_activation = getattr(nn, output_activation.capitalize())() if output_activation and hasattr(nn, output_activation.capitalize()) else None
         
-        # 移除自适应安全边距配置 - 纯飞行员网络专注于效率优化
-        # 安全功能现在由Guardian Network专门处理
+        # Alpha prediction configuration for adaptive safety
+        self.predict_alpha = config.get('predict_alpha', False)
+        if self.predict_alpha:
+            alpha_hidden_dim = config.get('alpha_hidden_dim', 64)
+            self.alpha_network = nn.Sequential(
+                nn.Linear(self.input_dim, alpha_hidden_dim),
+                self.activation,
+                nn.Linear(alpha_hidden_dim, 1),
+                nn.Sigmoid()  # Alpha values in (0, 1) range
+            )
+        else:
+            self.alpha_network = None
         
         # 构建动作预测MLP层
         self.action_layers = nn.ModuleList()
@@ -325,15 +335,15 @@ class PolicyHeadModule(nn.Module):
             
         # 移除margin预测网络 - 纯飞行员网络不预测安全相关参数
     
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
+    def forward(self, features: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
-        前向传播：生成动作（纯飞行员网络，专注于效率）。
+        前向传播：生成动作和可选的alpha值。
         
         参数:
             features: 输入特征，形状为[batch_size, n_agents, input_dim]或[batch_size, input_dim]
                
         返回:
-            actions: 动作张量（移除alpha和margin预测，专注于效率优化）
+            tuple: (actions, alpha, dynamic_margins)
         """
         if features.dim() == 3:  # 多智能体情况
             batch_size, n_agents, input_dim = features.shape
@@ -356,7 +366,14 @@ class PolicyHeadModule(nn.Module):
             # 重塑动作回 [batch_size, n_agents, -1]
             actions = actions_flat.view(batch_size, n_agents, -1)
             
-            return actions
+            # Alpha prediction for multi-agent case
+            if self.alpha_network is not None:
+                alpha_flat = self.alpha_network(features_flat)
+                alpha = alpha_flat.view(batch_size, n_agents, 1)
+            else:
+                alpha = None
+                
+            return actions, alpha, None
         else:
             # 简单批处理 - 单智能体情况
             actions = self.action_network(features)
@@ -368,8 +385,14 @@ class PolicyHeadModule(nn.Module):
             # 缩放动作（如果需要）
             if self.action_scale != 1.0:
                 actions = actions * self.action_scale
+            
+            # Alpha prediction for single-agent case
+            if self.alpha_network is not None:
+                alpha = self.alpha_network(features)
+            else:
+                alpha = None
                 
-            return actions
+            return actions, alpha, None
 
 
 class LossWeightHead(nn.Module):
@@ -485,11 +508,13 @@ class BPTTPolicy(nn.Module):
         # 通过记忆模块处理
         memory_output = self.memory(features)
         
-        # 通过策略头生成动作（纯飞行员网络）
-        actions = self.policy_head(memory_output)
+        # 通过策略头生成动作和alpha
+        actions, alpha, dynamic_margins = self.policy_head(memory_output)
 
         outputs = {
-            'action': actions
+            'action': actions,
+            'alpha': alpha,
+            'dynamic_margins': dynamic_margins
         }
 
         if self.use_adaptive_loss_weights and self.loss_weight_head is not None:
