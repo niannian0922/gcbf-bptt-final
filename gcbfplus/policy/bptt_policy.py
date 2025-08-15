@@ -467,10 +467,18 @@ class BPTTPolicy(nn.Module):
         """
         super(BPTTPolicy, self).__init__()
         
-        # 提取子配置
-        perception_config = config.get('perception', {})
-        memory_config = config.get('memory', {})
-        policy_head_config = config.get('policy_head', {})
+        # 存储完整配置（自适应损失权重需要访问根级别的losses）
+        self.config = config
+        
+        # --- THE FINAL FIX ---
+        # Get the policy-specific configuration block from the main config
+        policy_cfg = config.get('policy', {})
+        # --- END OF FIX ---
+        
+        # 提取子配置（现在从policy_cfg获取）
+        perception_config = policy_cfg.get('perception', {})
+        memory_config = policy_cfg.get('memory', {})
+        policy_head_config = policy_cfg.get('policy_head', {})
         
         # 创建感知模块
         self.perception = PerceptionModule(perception_config)
@@ -487,11 +495,8 @@ class BPTTPolicy(nn.Module):
         # 创建策略头模块
         self.policy_head = PolicyHeadModule(policy_head_config)
         
-        # 存储配置
-        self.config = config
-        
         # NEW: Adaptive loss weights functionality
-        self.use_adaptive_loss_weights = config.get('use_adaptive_loss_weights', False)
+        self.use_adaptive_loss_weights = policy_cfg.get('use_adaptive_loss_weights', False)
         if self.use_adaptive_loss_weights:
             # Filter for loss ranges defined as lists in the config
             loss_ranges = {k: v for k, v in self.config.get('losses', {}).items() if isinstance(v, list)}
