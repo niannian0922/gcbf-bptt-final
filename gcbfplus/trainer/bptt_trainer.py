@@ -90,28 +90,36 @@ class BPTTTrainer:
         
         # Initialize previous goal distance for progress reward calculation
         previous_goal_distance = self.env.get_goal_distance(init_state).detach()
+        
+        # Initialize intervention tracking for Guardian Protocol
+        total_interventions = torch.zeros((), device=self.device)
 
         for _ in range(self.horizon):
             observations = self.env.get_observation(state)
             if hasattr(observations, "to"):
                 observations = observations.to(self.device)
 
-            # 1. Get dictionary output from the policy
+            # 1. Get nominal action and safety confidence from the policy
             policy_outputs = self.policy(observations)
             nominal_action = policy_outputs['action']
             alpha = policy_outputs.get('alpha')
-            
-            # --- PROBABILISTIC SHIELD BLENDING LOGIC ---
-            safe_backup_action = torch.zeros_like(nominal_action)
-            if alpha is None:
-                final_action = nominal_action
-                log_alpha = torch.ones(nominal_action.shape[0], 1, device=self.device)
-            else:
-                final_action = alpha * nominal_action + (1 - alpha) * safe_backup_action
-                log_alpha = alpha
-            # --- END OF SHIELD LOGIC ---
 
-            step_result = self.env.step(state, final_action, alpha)
+            # --- START OF GUARDIAN PROTOCOL ---
+            losses_cfg = self.config.get('losses', {})
+            guardian_threshold = losses_cfg.get('guardian_threshold', 0.5)
+
+            # The Guardian's Verdict: Check if the policy's proposed action is unsafe.
+            intervention_mask = (alpha < guardian_threshold).float().detach() if alpha is not None else torch.zeros_like(nominal_action[:, :1])
+
+            # Define the guaranteed safe action: a gentle braking maneuver.
+            safe_backup_action = -0.5 * state.velocity  # Gently brakes by applying a force opposite to velocity.
+
+            # The Guardian's Action: Override the nominal action if intervention is triggered.
+            action_to_execute = (1 - intervention_mask) * nominal_action + intervention_mask * safe_backup_action
+            log_alpha = alpha if alpha is not None else torch.ones(nominal_action.shape[0], 1, device=self.device)
+            # --- END OF GUARDIAN PROTOCOL ---
+
+            step_result = self.env.step(state, action_to_execute, alpha)
             next_state = step_result.next_state
             
             # --- DYNAMIC LOSS CALCULATION ---
@@ -132,32 +140,24 @@ class BPTTTrainer:
             previous_goal_distance = current_goal_distance.detach()
             # --- END OF PROGRESS REWARD LOGIC ---
             
-            # 2. Check for and use dynamic loss weights
-            losses_cfg = self.config.get('losses', {})
-            if 'loss_weights' in policy_outputs:
-                dynamic_weights = policy_outputs['loss_weights']
-                goal_w = dynamic_weights['goal_weight']
-                jerk_w = dynamic_weights['jerk_loss_weight']
-                alpha_reg_w = dynamic_weights['alpha_reg_weight']
-            else:
-                # Fallback to static weights from config for backward compatibility
-                goal_w = losses_cfg.get('goal_weight', 1.0)
-                jerk_w = losses_cfg.get('jerk_loss_weight', 0.1)
-                alpha_reg_w = losses_cfg.get('alpha_reg_weight', 0.0)
+            # 3. Calculate losses based on the new Guardian protocol
+            track_cost = losses_cfg.get('goal_weight', 1.0) * torch.mean(current_goal_distance ** 2)
+            ctrl_cost = 1e-3 * torch.sum(action_to_execute ** 2)
 
-            # 3. Calculate losses using the determined weights
-            track_cost = torch.mean(goal_w * (goal_distances ** 2))
-            
-            # For simplicity in this instruction, we assume jerk_cost is not yet implemented.
-            # If it is, it should also use jerk_w.
-            ctrl_cost = 1e-3 * torch.sum(final_action ** 2)
-
-            # Safety-Gated Alpha Regularization with dynamic weight
-            safety_gate_threshold = losses_cfg.get('safety_gate_threshold', 0.0)
+            # Gated Alpha Regularization
+            safety_gate_threshold = losses_cfg.get('safety_gate_threshold', 0.1)
             is_safe_mask = (step_result.cost == 0).float().detach()
-            gated_alpha_reg_loss = torch.mean(alpha_reg_w * is_safe_mask * ((1.0 - log_alpha) ** 2))
+            alpha_reg_loss = losses_cfg.get('alpha_reg_weight', 0.05) * torch.mean(is_safe_mask * ((1.0 - log_alpha) ** 2)) if alpha is not None else 0
 
-            step_loss = track_cost + ctrl_cost + gated_alpha_reg_loss - progress_reward
+            # The Guardian's Penalty (NEW!)
+            guardian_intervention_penalty = losses_cfg.get('guardian_intervention_penalty', 10.0)
+            intervention_loss = guardian_intervention_penalty * torch.mean(intervention_mask)
+            
+            # Track total interventions for logging
+            total_interventions = total_interventions + torch.sum(intervention_mask)
+
+            # 4. Final step loss
+            step_loss = track_cost + ctrl_cost - progress_reward + alpha_reg_loss + intervention_loss
             # --- END OF DYNAMIC LOSS CALCULATION ---
 
             # Collision metric
@@ -174,7 +174,8 @@ class BPTTTrainer:
         avg_goal_distance = sum_goal_distance / float(self.horizon)
         collision_rate = collision_count / float(self.horizon)
         avg_alpha = sum_alpha / float(self.horizon)
-        return cumulative_loss, avg_goal_distance, collision_rate, avg_alpha
+        intervention_rate = total_interventions / float(self.horizon)
+        return cumulative_loss, avg_goal_distance, collision_rate, avg_alpha, intervention_rate
 
     def train(self, num_steps: Optional[int] = None) -> None:
         self.policy.train()
@@ -183,7 +184,7 @@ class BPTTTrainer:
         max_steps: int = int(num_steps) if num_steps is not None else int(self.num_steps)
         for step_idx in range(max_steps):
             self.optimizer.zero_grad(set_to_none=True)
-            total_loss, avg_goal_distance, collision_rate, avg_alpha = self.rollout(init_state)
+            total_loss, avg_goal_distance, collision_rate, avg_alpha, intervention_rate = self.rollout(init_state)
             total_loss.backward()
             nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=10.0)
             self.optimizer.step()
@@ -193,7 +194,8 @@ class BPTTTrainer:
                     "loss": float(total_loss.item()),
                     "goal_distance": float(avg_goal_distance.item()),
                     "collision_rate": float(collision_rate.item()),
-                    "avg_alpha_confidence": float(avg_alpha.item()), # New metric!
+                    "avg_alpha_confidence": float(avg_alpha.item()),
+                    "guardian_intervention_rate": float(intervention_rate.item()),
                 },
                 step=self.global_step,
             )
