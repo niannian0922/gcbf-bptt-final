@@ -128,17 +128,30 @@ class BPTTTrainer:
             # Tracking cost: squared goal distance
             track_cost = torch.sum(goal_distances ** 2)
 
-            # Alpha Regularization Loss (New!)
-            # We penalize the model for being uncertain (alpha close to 0).
-            # This encourages the model to be confident (alpha -> 1) when it's safe.
-            alpha_reg_loss = self.config.get('losses', {}).get('alpha_reg_weight', 0.0) * torch.mean((1.0 - log_alpha) ** 2)
+            # --- START OF SAFETY-GATED ALPHA REGULARIZATION ---
+
+            # 1. Get the safety gate threshold from the config.
+            losses_cfg = self.config.get('losses', {})
+            alpha_reg_weight = losses_cfg.get('alpha_reg_weight', 0.0)
+            safety_gate_threshold = losses_cfg.get('safety_gate_threshold', 0.0) # Default to 0 (always on) if not specified
+
+            # 2. Determine if the current state is "safe". We use the cost from the step_result.
+            # A cost > 0 indicates a collision, which is unsafe.
+            # We can also use goal_distance as a proxy for safety near obstacles.
+            # For simplicity and robustness, we'll use the collision cost. A cost of 0 means no collision occurred.
+            is_safe_mask = (step_result.cost == 0).float().detach() # Use detach to not flow gradients through the mask itself
+
+            # 3. Apply the alpha regularization loss ONLY on the states that are safe.
+            gated_alpha_reg_loss = alpha_reg_weight * torch.mean(is_safe_mask * ((1.0 - log_alpha) ** 2))
+
+            # --- END OF SAFETY-GATED ALPHA REGULARIZATION ---
 
             # Collision metric
             collision_event = (step_result.cost > 0).to(self.device)
             collision_count = collision_count + torch.sum(collision_event.float())
 
             # Update total loss
-            step_loss = track_cost + ctrl_cost + alpha_reg_loss # Added new loss term
+            step_loss = track_cost + ctrl_cost + gated_alpha_reg_loss # Added new gated loss term
             cumulative_loss = cumulative_loss + step_loss
 
             # Accumulate alpha for averaging
