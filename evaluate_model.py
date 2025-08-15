@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Import our project modules
 from gcbfplus.env.single_double_integrator import SingleDoubleIntegratorEnv
-from gcbfplus.trainer.bptt_trainer import SimpleMLPPolicy as BPTTPolicy
+from gcbfplus.policy.bptt_policy import BPTTPolicy
 
 
 @dataclass
@@ -56,18 +56,8 @@ class ModelEvaluator:
         # Initialize environment
         self.env = SingleDoubleIntegratorEnv(config.get('env', {}), device=device)
         
-        # Correctly initialize the SimpleMLPPolicy with explicit arguments
-        policy_cfg = config.get('policy', {})
-        # Based on our inspect_model.py script, the trained model has these dimensions
-        input_dim = 6
-        output_dim = 2
-        hidden_dim = policy_cfg.get('hidden_dim', 128) # Get hidden_dim from config
-
-        self.policy = BPTTPolicy(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            hidden_dim=hidden_dim
-        )
+        # Initialize the full BPTTPolicy from configuration dictionary
+        self.policy = BPTTPolicy(config.get('policy', {}))
         self.policy.to(device)
         
         # Load trained model checkpoint
@@ -147,9 +137,7 @@ class ModelEvaluator:
             
             # Get action from policy (no gradients needed for evaluation)
             with torch.no_grad():
-                actions = self.policy(observations)
-                alpha = None
-                dynamic_margins = None
+                actions, alpha, dynamic_margins = self.policy(observations)
             
             # Store action for jerk calculation
             actions_list.append(actions.detach().cpu())
