@@ -56,8 +56,9 @@ class ModelEvaluator:
         # Initialize environment
         self.env = SingleDoubleIntegratorEnv(config.get('env', {}), device=device)
         
-        # Initialize the full BPTTPolicy from configuration dictionary
-        self.policy = BPTTPolicy(config.get('policy', {}))
+        # Pass the entire configuration object to the policy, ensuring it has access
+        # to all necessary blocks (e.g., 'policy', 'losses').
+        self.policy = BPTTPolicy(config)
         self.policy.to(device)
         
         # Load trained model checkpoint
