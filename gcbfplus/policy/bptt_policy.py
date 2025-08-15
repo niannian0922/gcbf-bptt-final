@@ -267,10 +267,10 @@ class MemoryModule(nn.Module):
 
 class PolicyHeadModule(nn.Module):
     """
-    策略头模块，用于生成动作。
+    策略头模块 - 纯飞行员网络（双子座协议）。
     
-    将特征转换为动作输出，可选择应用动作边界和其他变换。
-    支持自适应安全边距（动态Alpha）预测。
+    专注于效率优化的动作生成，不包含安全相关预测。
+    安全功能由独立的Guardian Network处理。
     """
     
     def __init__(self, config: Dict):
@@ -304,9 +304,8 @@ class PolicyHeadModule(nn.Module):
         output_activation = config.get('output_activation', None)
         self.output_activation = getattr(nn, output_activation.capitalize())() if output_activation and hasattr(nn, output_activation.capitalize()) else None
         
-        # 自适应安全边距配置
-        self.predict_alpha = config.get('predict_alpha', True)
-        self.predict_margin = config.get('predict_margin', False)  # 新增：是否预测动态安全裕度
+        # 移除自适应安全边距配置 - 纯飞行员网络专注于效率优化
+        # 安全功能现在由Guardian Network专门处理
         
         # 构建动作预测MLP层
         self.action_layers = nn.ModuleList()
@@ -322,42 +321,19 @@ class PolicyHeadModule(nn.Module):
         
         self.action_network = nn.Sequential(*self.action_layers)
         
-        # 仅当predict_alpha为True时构建alpha预测MLP
-        if self.predict_alpha:
-            alpha_hidden_dim = config.get('alpha_hidden_dim', self.hidden_dims[0] // 2 if self.hidden_dims else 32)
-            self.alpha_network = nn.Sequential(
-                nn.Linear(self.input_dim, alpha_hidden_dim),
-                self.activation,
-                nn.Linear(alpha_hidden_dim, 1),  # 为每个智能体预测单个alpha
-                nn.Softplus()  # 确保alpha > 0
-            )
-        else:
-            self.alpha_network = None
+        # 移除alpha预测网络 - 纯飞行员网络不预测安全相关参数
             
-        # 🚀 CORE INNOVATION: 动态安全裕度预测网络
-        if self.predict_margin:
-            margin_hidden_dim = config.get('margin_hidden_dim', self.hidden_dims[0] // 4 if self.hidden_dims else 16)
-            self.margin_network = nn.Sequential(
-                nn.Linear(self.input_dim, margin_hidden_dim),
-                self.activation,
-                nn.Linear(margin_hidden_dim, 1),  # 为每个智能体预测单个安全裕度
-                nn.Sigmoid()  # 输出到(0, 1)范围，稍后映射到[min_margin, max_margin]
-            )
-        else:
-            self.margin_network = None
+        # 移除margin预测网络 - 纯飞行员网络不预测安全相关参数
     
-    def forward(self, features: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
         """
-        前向传播：生成动作、可选的alpha值和动态安全裕度。
+        前向传播：生成动作（纯飞行员网络，专注于效率）。
         
         参数:
             features: 输入特征，形状为[batch_size, n_agents, input_dim]或[batch_size, input_dim]
                
         返回:
-            元组(actions, alpha, dynamic_margins):
-            - actions: 动作张量
-            - alpha: 动态alpha值（如果启用）或None
-            - dynamic_margins: 动态安全裕度（如果启用）或None
+            actions: 动作张量（移除alpha和margin预测，专注于效率优化）
         """
         if features.dim() == 3:  # 多智能体情况
             batch_size, n_agents, input_dim = features.shape
@@ -380,42 +356,20 @@ class PolicyHeadModule(nn.Module):
             # 重塑动作回 [batch_size, n_agents, -1]
             actions = actions_flat.view(batch_size, n_agents, -1)
             
-            # 如果启用，通过alpha网络处理
-            if self.alpha_network is not None:
-                alpha_flat = self.alpha_network(features_flat)
-                alpha = alpha_flat.view(batch_size, n_agents, 1)
-            else:
-                alpha = None
-                
-            # 🚀 CORE INNOVATION: 如果启用，通过动态安全裕度网络处理
-            if self.margin_network is not None:
-                margin_flat = self.margin_network(features_flat)
-                dynamic_margins = margin_flat.view(batch_size, n_agents, 1)
-            else:
-                dynamic_margins = None
-                
-            return actions, alpha, dynamic_margins
+            return actions
         else:
-            # 简单批处理
+            # 简单批处理 - 单智能体情况
             actions = self.action_network(features)
+            
+            # 应用输出激活函数
+            if self.output_activation is not None:
+                actions = self.output_activation(actions)
             
             # 缩放动作（如果需要）
             if self.action_scale != 1.0:
                 actions = actions * self.action_scale
-            
-            # 如果启用，通过alpha网络处理
-            if self.alpha_network is not None:
-                alpha = self.alpha_network(features)
-            else:
-                alpha = None
                 
-            # 🚀 CORE INNOVATION: 如果启用，通过动态安全裕度网络处理
-            if self.margin_network is not None:
-                dynamic_margins = self.margin_network(features)
-            else:
-                dynamic_margins = None
-                
-            return actions, alpha, dynamic_margins
+            return actions
 
 
 class LossWeightHead(nn.Module):
@@ -452,10 +406,10 @@ class LossWeightHead(nn.Module):
 
 class BPTTPolicy(nn.Module):
     """
-    时序反向传播（BPTT）策略网络。
+    BPTT飞行员网络 - 双子座协议的效率专家。
     
-    结合感知、记忆和策略头模块，实现端到端的策略学习。
-    支持多智能体场景和自适应安全边距机制。
+    结合感知、记忆和策略头模块，专注于效率优化的端到端策略学习。
+    安全功能由独立的Guardian Network处理，实现角色分离。
     """
     
     def __init__(self, config: Dict):
@@ -510,17 +464,14 @@ class BPTTPolicy(nn.Module):
     
     def forward(self, observations: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        前向传播：将观测转换为动作、可选的alpha值和动态安全裕度。
+        前向传播：将观测转换为动作（纯飞行员网络，专注于效率优化）。
         
         参数:
             observations: 观测张量
                
         返回:
             字典包含:
-            - action: 动作张量  
-            - alpha: 动态alpha值（如果启用）或None
-            - dynamic_margins: 动态安全裕度（如果启用）或None
-            - loss_weights: 动态损失权重（如果启用）或None
+            - action: 动作张量（专注于效率优化，安全由Guardian Network处理）
         """
         # 通过感知模块处理
         features = self.perception(observations)
@@ -528,13 +479,11 @@ class BPTTPolicy(nn.Module):
         # 通过记忆模块处理
         memory_output = self.memory(features)
         
-        # 通过策略头生成动作、alpha和动态安全裕度
-        actions, alpha, dynamic_margins = self.policy_head(memory_output)
+        # 通过策略头生成动作（纯飞行员网络）
+        actions = self.policy_head(memory_output)
 
         outputs = {
-            'action': actions,
-            'alpha': alpha,
-            'dynamic_margins': dynamic_margins
+            'action': actions
         }
 
         if self.use_adaptive_loss_weights and self.loss_weight_head is not None:
