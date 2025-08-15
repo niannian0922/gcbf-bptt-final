@@ -395,6 +395,55 @@ class PolicyHeadModule(nn.Module):
             return actions, alpha, None
 
 
+class GuardianNet(nn.Module):
+    """
+    The Guardian: A network that perceives the state and dictates priorities (loss weights).
+    
+    The Guardian's role is to assess the current situation and determine what the agent should
+    prioritize - efficiency (goal weight), smoothness (jerk weight), or safety (alpha reg weight).
+    This separates the concern of "what to prioritize" from "how to act".
+    """
+    def __init__(self, config: Dict, loss_ranges: Dict):
+        super().__init__()
+        input_dim = config['input_dim']
+        hidden_dims = config.get('hidden_dims', [64, 32])
+        self.output_keys = config['output_keys']
+        self.loss_ranges = loss_ranges
+        
+        # Build the Guardian's reasoning network
+        layers = []
+        current_dim = input_dim
+        for h_dim in hidden_dims:
+            layers.append(nn.Linear(current_dim, h_dim))
+            layers.append(nn.ReLU())
+            current_dim = h_dim
+        layers.append(nn.Linear(current_dim, len(self.output_keys)))
+        layers.append(nn.Sigmoid())  # Output normalized weights in [0, 1]
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, observations: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        The Guardian analyzes the raw state and outputs dynamic loss weights.
+        
+        Args:
+            observations: Raw state observations [batch_size, obs_dim]
+            
+        Returns:
+            Dict of dynamic loss weights scaled to their defined ranges
+        """
+        normalized_weights = self.net(observations)
+        
+        scaled_weights = {}
+        for i, key in enumerate(self.output_keys):
+            min_val, max_val = self.loss_ranges[key]
+            # Handle both batched and single observations
+            if observations.dim() == 2:  # [batch_size, obs_dim]
+                scaled_weights[key] = normalized_weights[:, i] * (max_val - min_val) + min_val
+            else:  # [obs_dim] - single observation
+                scaled_weights[key] = normalized_weights[i] * (max_val - min_val) + min_val
+        return scaled_weights
+
+
 class LossWeightHead(nn.Module):
     """A head that predicts dynamic loss weights based on features."""
     def __init__(self, input_dim: int, weight_config: Dict[str, List[float]]):

@@ -7,7 +7,7 @@ from torch import nn
 from torch.optim import Adam
 import wandb
 
-from ..policy.bptt_policy import BPTTPolicy
+from ..policy.bptt_policy import BPTTPolicy, GuardianNet
 from ..policy.guardian_network import GuardianNetwork
 
 
@@ -81,9 +81,18 @@ class BPTTTrainer:
         guardian_cfg = networks_cfg.get('guardian_network', {})
         training_cfg = self.config.get('training', {})
 
-        # Initialize single policy with adaptive loss weights
-        self.policy = BPTTPolicy(self.config).to(self.device)
-        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self.learning_rate)
+        # --- GUARDIAN-PILOT ARCHITECTURE INITIALIZATION ---
+        # 1. Initialize the Pilot Policy (handles flying actions)
+        self.pilot_policy = BPTTPolicy(self.config).to(self.device)
+        
+        # 2. Initialize the Guardian Network (handles priority reasoning)
+        guardian_cfg = self.config.get('guardian', {})
+        loss_ranges = {k: v for k, v in self.config.get('losses', {}).items() if isinstance(v, list)}
+        self.guardian_policy = GuardianNet(guardian_cfg, loss_ranges).to(self.device)
+
+        # 3. Create unified optimizer managing both networks
+        all_params = list(self.pilot_policy.parameters()) + list(self.guardian_policy.parameters())
+        self.optimizer = torch.optim.Adam(all_params, lr=self.learning_rate)
         self.max_grad_norm = training_cfg.get('max_grad_norm', 10.0)
         # --- END OF __init__ REFACTOR ---
 
@@ -105,16 +114,26 @@ class BPTTTrainer:
         sum_alpha = torch.zeros((), device=self.device)
 
         for _ in range(self.horizon):
+            # --- GUARDIAN-PILOT TWO-STEP DECISION PROCESS ---
+            
+            # Step 1: Get observations
             observations = self.env.get_observation(state)
             check_nan(observations, "observations")
 
-            policy_outputs = self.policy(observations)
+            # Step 2: The Guardian first assesses the situation and sets the priorities
+            dynamic_weights = self.guardian_policy(observations)
+            check_nan(torch.stack([dynamic_weights[key] for key in dynamic_weights.keys()]), "guardian_weights")
+
+            # Step 3: The Pilot receives the observation and decides on an action
+            # (The pilot acts independently; weights are only for loss calculation)
+            policy_outputs = self.pilot_policy(observations)
             nominal_action = policy_outputs['action']
             alpha = policy_outputs.get('alpha')
             check_nan(nominal_action, "policy_outputs[action]")
             if alpha is not None:
                 check_nan(alpha, "policy_outputs[alpha]")
 
+            # Step 4: Apply probabilistic safety shield (same as before)
             safe_backup_action = torch.zeros_like(nominal_action)
             if alpha is None:
                 final_action = nominal_action
@@ -126,29 +145,31 @@ class BPTTTrainer:
             sum_alpha = sum_alpha + torch.mean(log_alpha)
             check_nan(final_action, "final_action")
 
+            # Step 5: Execute action in environment
             step_result = self.env.step(state, final_action, alpha)
             next_state = step_result.next_state
             check_nan(next_state.position, "next_state.position")
             check_nan(next_state.velocity, "next_state.velocity")
 
+            # Step 6: Calculate loss using Guardian's dynamic weights
             goal_distances = self.env.get_goal_distance(next_state)
-            losses_cfg = self.config.get('losses', {})
+            
+            # Use Guardian's dynamic weights (this is the key innovation!)
+            goal_w = dynamic_weights['goal_weight']
+            jerk_w = dynamic_weights['jerk_loss_weight'] 
+            alpha_reg_w = dynamic_weights['alpha_reg_weight']
 
-            if 'loss_weights' in policy_outputs:
-                dynamic_weights = policy_outputs['loss_weights']
-                goal_w = dynamic_weights['goal_weight']
-                alpha_reg_w = dynamic_weights.get('alpha_reg_weight', 0.0) # Use .get for safety
-            else:
-                goal_w = losses_cfg.get('goal_weight', 1.0)
-                alpha_reg_w = losses_cfg.get('alpha_reg_weight', 0.0)
-
+            # Compute individual loss components
             track_cost = torch.mean(goal_w * (goal_distances ** 2))
             ctrl_cost = 1e-3 * torch.sum(final_action ** 2)
+            jerk_cost = jerk_w * torch.mean(torch.sum(final_action ** 2, dim=-1))  # Simplified jerk approximation
 
+            # Alpha regularization with safety gating
             is_safe_mask = (step_result.cost == 0).float().detach()
             gated_alpha_reg_loss = torch.mean(alpha_reg_w * is_safe_mask * ((1.0 - log_alpha) ** 2))
 
-            step_loss = track_cost + ctrl_cost + gated_alpha_reg_loss
+            # Total step loss with Guardian's prioritization
+            step_loss = track_cost + ctrl_cost + jerk_cost + gated_alpha_reg_loss
             check_nan(step_loss, "step_loss")
 
             cumulative_loss = cumulative_loss + step_loss
@@ -162,7 +183,9 @@ class BPTTTrainer:
         return cumulative_loss, avg_goal_distance, collision_rate, avg_alpha
 
     def train(self, num_steps: Optional[int] = None) -> None:
-        self.policy.train()
+        # Set both networks to training mode
+        self.pilot_policy.train()
+        self.guardian_policy.train()
         init_state = self.env.reset()
 
         max_steps: int = int(num_steps) if num_steps is not None else int(self.num_steps)
@@ -170,7 +193,11 @@ class BPTTTrainer:
             self.optimizer.zero_grad(set_to_none=True)
             total_loss, avg_goal_distance, collision_rate, avg_alpha = self.rollout(init_state)
             total_loss.backward()
-            nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=self.max_grad_norm)
+            # Apply gradient clipping to both networks
+            nn.utils.clip_grad_norm_(
+                list(self.pilot_policy.parameters()) + list(self.guardian_policy.parameters()), 
+                max_norm=self.max_grad_norm
+            )
             self.optimizer.step()
 
             wandb.log({
@@ -185,17 +212,18 @@ class BPTTTrainer:
             if (step_idx + 1) % 10 == 0:
                 print(
                     f"Step {step_idx + 1}/{self.num_steps} | "
-                    f"Loss: {total_loss.item():.4f} | "
+                    f"Guardian-Pilot Loss: {total_loss.item():.4f} | "
                     f"GoalDist: {avg_goal_distance.item():.4f} | "
                     f"CollRate: {collision_rate.item():.4f} | "
                     f"Alpha: {avg_alpha.item():.4f}"
                 )
 
-            # Periodic checkpoint saving
+            # Periodic checkpoint saving for both networks
             if self.global_step % int(self.save_interval) == 0:
                 step_dir = os.path.join(self.model_save_path, str(self.global_step))
                 os.makedirs(step_dir, exist_ok=True)
-                torch.save(self.policy.state_dict(), os.path.join(step_dir, "policy.pt"))
-                print(f"Checkpoint saved at step {self.global_step} -> {step_dir}")
+                torch.save(self.pilot_policy.state_dict(), os.path.join(step_dir, "pilot.pt"))
+                torch.save(self.guardian_policy.state_dict(), os.path.join(step_dir, "guardian.pt"))
+                print(f"Guardian-Pilot checkpoint saved at step {self.global_step} -> {step_dir}")
 
 
