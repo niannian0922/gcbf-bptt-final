@@ -91,11 +91,6 @@ policy:
     margin_hidden_dim: 32     # Margin network hidden dimension
 
   # Extended sections for future models; kept for completeness and forward-compatibility
-  memory:
-    hidden_dim: 128
-    num_layers: 1
-    dropout: 0.0
-
   actor:
     hidden_dims: [128, 128]
     activation: "relu"
