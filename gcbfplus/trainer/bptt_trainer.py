@@ -2,11 +2,13 @@ from typing import Any, Dict, Tuple, Optional
 import os
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 import wandb
 
 from ..policy.bptt_policy import BPTTPolicy
+from ..policy.guardian_network import GuardianNetwork
 
 
 class SimpleMLPPolicy(nn.Module):
@@ -66,10 +68,28 @@ class BPTTTrainer:
         obs_dim = int(self.env.observation_shape[0]) if isinstance(self.env.observation_shape, tuple) else int(self.env.observation_shape)
         action_dim = int(self.env.action_shape[0]) if isinstance(self.env.action_shape, tuple) else int(self.env.action_shape)
 
-        # The policy now requires the full config to find the 'losses' block for the adaptive weight head
-        self.policy = BPTTPolicy(self.config).to(self.device)
+        # --- START OF __init__ REFACTOR ---
+        # Get the full network configuration block
+        networks_cfg = self.config.get('networks', {})
+        pilot_cfg = networks_cfg.get('pilot_network', {})
+        guardian_cfg = networks_cfg.get('guardian_network', {})
+        training_cfg = self.config.get('training', {})
 
-        self.optimizer = Adam(self.policy.parameters(), lr=self.learning_rate)
+        # 1. Instantiate the Pilot Network (our refactored BPTTPolicy)
+        # We pass the 'pilot_network' sub-config to it
+        self.pilot_policy = BPTTPolicy(pilot_cfg).to(self.device)
+
+        # 2. Instantiate the Guardian Network (our new safety expert)
+        self.guardian_network = GuardianNetwork(guardian_cfg).to(self.device)
+
+        # 3. Create two separate optimizers
+        pilot_lr = training_cfg.get('pilot_lr', 0.001)
+        guardian_lr = training_cfg.get('guardian_lr', 0.001)
+        self.max_grad_norm = training_cfg.get('max_grad_norm', 1.0)
+
+        self.pilot_optimizer = torch.optim.Adam(self.pilot_policy.parameters(), lr=pilot_lr)
+        self.guardian_optimizer = torch.optim.Adam(self.guardian_network.parameters(), lr=guardian_lr)
+        # --- END OF __init__ REFACTOR ---
 
         # Initialize Weights & Biases
         wandb_config: Dict[str, Any] = full_config.get("wandb", {})
@@ -83,128 +103,133 @@ class BPTTTrainer:
 
     def rollout(self, init_state: Any) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         state = init_state
-        cumulative_loss = torch.zeros((), device=self.device)
+        cumulative_pilot_loss = torch.zeros((), device=self.device)
+        cumulative_guardian_loss = torch.zeros((), device=self.device)
         sum_goal_distance = torch.zeros((), device=self.device)
         collision_count = torch.zeros((), device=self.device)
-        sum_alpha = torch.zeros((), device=self.device)
-        
-        # Initialize previous goal distance for progress reward calculation
-        previous_goal_distance = self.env.get_goal_distance(init_state).detach()
-        
-        # Initialize intervention tracking for Guardian Protocol
-        total_interventions = torch.zeros((), device=self.device)
 
         for _ in range(self.horizon):
+            # --- START OF rollout LOOP REFACTOR ---
+            
+            # 1. Get observation from the environment
             observations = self.env.get_observation(state)
-            if hasattr(observations, "to"):
+            if hasattr(observations, 'to'):
                 observations = observations.to(self.device)
 
-            # 1. Get nominal action and safety confidence from the policy
-            policy_outputs = self.policy(observations)
+            # --- GEMINI PROTOCOL DECISION PIPELINE ---
+            # 2. The Pilot Network proposes a nominal action
+            policy_outputs = self.pilot_policy(observations)
             nominal_action = policy_outputs['action']
-            alpha = policy_outputs.get('alpha')
 
-            # --- START OF GUARDIAN PROTOCOL ---
-            losses_cfg = self.config.get('losses', {})
-            guardian_threshold = losses_cfg.get('guardian_threshold', 0.5)
+            # 3. The Guardian Network predicts the safety value 'h'
+            predicted_h = self.guardian_network(observations)
 
-            # The Guardian's Verdict: Check if the policy's proposed action is unsafe.
-            intervention_mask = (alpha < guardian_threshold).float().detach() if alpha is not None else torch.zeros_like(nominal_action[:, :1])
+            # 4. The QP Arbiter (Placeholder): For now, we use a "pass-through"
+            #    This allows us to test the training loop before integrating a complex QP solver.
+            safe_action_to_execute = nominal_action
+            # --- END OF GEMINI PROTOCOL DECISION PIPELINE ---
 
-            # Define the guaranteed safe action: a gentle braking maneuver.
-            safe_backup_action = -0.5 * state.velocity  # Gently brakes by applying a force opposite to velocity.
-
-            # The Guardian's Action: Override the nominal action if intervention is triggered.
-            action_to_execute = (1 - intervention_mask) * nominal_action + intervention_mask * safe_backup_action
-            log_alpha = alpha if alpha is not None else torch.ones(nominal_action.shape[0], 1, device=self.device)
-            # --- END OF GUARDIAN PROTOCOL ---
-
-            step_result = self.env.step(state, action_to_execute, alpha)
+            # 5. Execute the action and get the next state
+            step_result = self.env.step(state, safe_action_to_execute)  # Removed alpha passing
             next_state = step_result.next_state
-            
-            # --- DYNAMIC LOSS CALCULATION ---
-            goal_distances = self.env.get_goal_distance(next_state)
-            current_goal_distance = goal_distances
-            avg_goal_distance_step = torch.mean(goal_distances)
-            sum_goal_distance = sum_goal_distance + avg_goal_distance_step
-            
-            # --- START OF PROGRESS REWARD LOGIC ---
+
+            # --- DUAL LOSS CALCULATION ---
             losses_cfg = self.config.get('losses', {})
-            progress_reward_weight = losses_cfg.get('progress_reward_weight', 0.0)
 
-            # The reward is the reduction in goal distance. A negative value is a penalty for moving away.
-            progress = previous_goal_distance - current_goal_distance
-            progress_reward = progress_reward_weight * torch.mean(progress)
-
-            # Update for the next iteration
-            previous_goal_distance = current_goal_distance.detach()
-            # --- END OF PROGRESS REWARD LOGIC ---
+            # 6. Guardian's Loss (Safety-driven):
+            #    We train the Guardian to accurately predict the true safety barrier value.
+            h_regression_weight = losses_cfg.get('h_regression_weight', 1.0)
             
-            # 3. Calculate losses based on the new Guardian protocol
+            # Compute true barrier function - placeholder implementation
+            # For now, we'll use distance to nearest obstacle as true h
+            if hasattr(self.env, 'compute_barrier_function'):
+                true_h, _ = self.env.compute_barrier_function(state)
+            else:
+                # Fallback: compute distance to obstacles as barrier function
+                if hasattr(state, 'obstacles') and state.obstacles is not None:
+                    # Simple distance-based barrier function
+                    agent_pos = state.position.unsqueeze(1)  # [batch, 1, 2]
+                    obs_positions = state.obstacles[..., :2]  # [batch, n_obs, 2]
+                    distances = torch.norm(agent_pos - obs_positions, dim=-1)  # [batch, n_obs]
+                    true_h = torch.min(distances, dim=-1)[0].unsqueeze(-1)  # [batch, 1]
+                else:
+                    # No obstacles, h should be large (safe)
+                    true_h = torch.ones_like(predicted_h) * 10.0
+            
+            guardian_loss = h_regression_weight * F.mse_loss(predicted_h, true_h.detach())
+
+            # 7. Pilot's Loss (Efficiency-driven):
+            #    Calculated based on the outcome of the final, safe action.
+            current_goal_distance = self.env.get_goal_distance(next_state)
             track_cost = losses_cfg.get('goal_weight', 1.0) * torch.mean(current_goal_distance ** 2)
-            ctrl_cost = 1e-3 * torch.sum(action_to_execute ** 2)
+            # (For now, we omit other pilot losses like jerk for simplicity)
+            pilot_loss = track_cost
 
-            # Gated Alpha Regularization
-            safety_gate_threshold = losses_cfg.get('safety_gate_threshold', 0.1)
-            is_safe_mask = (step_result.cost == 0).float().detach()
-            alpha_reg_loss = losses_cfg.get('alpha_reg_weight', 0.05) * torch.mean(is_safe_mask * ((1.0 - log_alpha) ** 2)) if alpha is not None else 0
+            # --- END OF DUAL LOSS CALCULATION ---
 
-            # The Guardian's Penalty (NEW!)
-            guardian_intervention_penalty = losses_cfg.get('guardian_intervention_penalty', 10.0)
-            intervention_loss = guardian_intervention_penalty * torch.mean(intervention_mask)
-            
-            # Track total interventions for logging
-            total_interventions = total_interventions + torch.sum(intervention_mask)
+            # Update cumulative losses for logging
+            cumulative_guardian_loss += guardian_loss
+            cumulative_pilot_loss += pilot_loss
 
-            # 4. Final step loss
-            step_loss = track_cost + ctrl_cost - progress_reward + alpha_reg_loss + intervention_loss
-            # --- END OF DYNAMIC LOSS CALCULATION ---
+            # Metrics tracking
+            avg_goal_distance_step = torch.mean(current_goal_distance)
+            sum_goal_distance = sum_goal_distance + avg_goal_distance_step
 
             # Collision metric
             collision_event = (step_result.cost > 0).to(self.device)
             collision_count = collision_count + torch.sum(collision_event.float())
 
-            cumulative_loss = cumulative_loss + step_loss
-
-            # Accumulate alpha for averaging
-            sum_alpha = sum_alpha + torch.mean(log_alpha)
-
             state = next_state
+            
+            # --- END OF rollout LOOP REFACTOR ---
 
         avg_goal_distance = sum_goal_distance / float(self.horizon)
         collision_rate = collision_count / float(self.horizon)
-        avg_alpha = sum_alpha / float(self.horizon)
-        intervention_rate = total_interventions / float(self.horizon)
-        return cumulative_loss, avg_goal_distance, collision_rate, avg_alpha, intervention_rate
+        return cumulative_pilot_loss, cumulative_guardian_loss, avg_goal_distance, collision_rate
 
     def train(self, num_steps: Optional[int] = None) -> None:
-        self.policy.train()
+        # Set both networks to training mode
+        self.pilot_policy.train()
+        self.guardian_network.train()
         init_state = self.env.reset()
 
         max_steps: int = int(num_steps) if num_steps is not None else int(self.num_steps)
         for step_idx in range(max_steps):
-            self.optimizer.zero_grad(set_to_none=True)
-            total_loss, avg_goal_distance, collision_rate, avg_alpha, intervention_rate = self.rollout(init_state)
-            total_loss.backward()
-            nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=10.0)
-            self.optimizer.step()
+            # --- START OF train METHOD REFACTOR ---
 
-            wandb.log(
-                {
-                    "loss": float(total_loss.item()),
-                    "goal_distance": float(avg_goal_distance.item()),
-                    "collision_rate": float(collision_rate.item()),
-                    "avg_alpha_confidence": float(avg_alpha.item()),
-                    "guardian_intervention_rate": float(intervention_rate.item()),
-                },
-                step=self.global_step,
-            )
+            # 1. Perform the rollout to get both losses
+            #    (You'll need to update the return values of your rollout function)
+            pilot_loss, guardian_loss, avg_goal_distance, collision_rate = self.rollout(init_state)
+
+            # 2. Update the Guardian Network
+            self.guardian_optimizer.zero_grad()
+            guardian_loss.backward(retain_graph=True)
+            torch.nn.utils.clip_grad_norm_(self.guardian_network.parameters(), self.max_grad_norm)
+            self.guardian_optimizer.step()
+
+            # 3. Update the Pilot Network
+            #    We detach the guardian_loss as the pilot should not be influenced by the guardian's training signal.
+            self.pilot_optimizer.zero_grad()
+            pilot_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.pilot_policy.parameters(), self.max_grad_norm)
+            self.pilot_optimizer.step()
+
+            # 4. Update wandb logging
+            wandb.log({
+                "pilot_loss": float(pilot_loss.item()),
+                "guardian_loss": float(guardian_loss.item()),
+                "goal_distance": float(avg_goal_distance.item()),
+                "collision_rate": float(collision_rate.item()),
+            }, step=self.global_step)
+
+            #--- END OF train METHOD REFACTOR ---
             self.global_step += 1
 
             if (step_idx + 1) % 10 == 0:
                 print(
                     f"Step {step_idx + 1}/{self.num_steps} | "
-                    f"Loss: {total_loss.item():.4f} | "
+                    f"Pilot Loss: {pilot_loss.item():.4f} | "
+                    f"Guardian Loss: {guardian_loss.item():.4f} | "
                     f"GoalDist: {avg_goal_distance.item():.4f} | "
                     f"CollRate: {collision_rate.item():.4f}"
                 )
@@ -213,7 +238,8 @@ class BPTTTrainer:
             if self.global_step % int(self.save_interval) == 0:
                 step_dir = os.path.join(self.model_save_path, str(self.global_step))
                 os.makedirs(step_dir, exist_ok=True)
-                torch.save(self.policy.state_dict(), os.path.join(step_dir, "policy.pt"))
-                print(f"Checkpoint saved at step {self.global_step} -> {step_dir}")
+                torch.save(self.pilot_policy.state_dict(), os.path.join(step_dir, "pilot.pt"))
+                torch.save(self.guardian_network.state_dict(), os.path.join(step_dir, "guardian.pt"))
+                print(f"Dual-network checkpoint saved at step {self.global_step} -> {step_dir}")
 
 
