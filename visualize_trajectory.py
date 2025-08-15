@@ -147,9 +147,11 @@ class TrajectoryVisualizer:
             
             # Get action from policy (no gradients needed for visualization)
             with torch.no_grad():
-                actions = self.policy(observations)
-                alpha = None
-                dynamic_margins = None
+                # Get the dictionary of outputs from the policy
+                policy_outputs = self.policy(observations)
+                actions = policy_outputs['action']
+                alpha = policy_outputs.get('alpha')
+                dynamic_margins = policy_outputs.get('dynamic_margins')
             
             # Extract state components
             positions, velocities = self._extract_state_components(state)

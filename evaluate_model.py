@@ -138,7 +138,11 @@ class ModelEvaluator:
             
             # Get action from policy (no gradients needed for evaluation)
             with torch.no_grad():
-                actions, alpha, dynamic_margins = self.policy(observations)
+                # Get the dictionary of outputs from the policy
+                policy_outputs = self.policy(observations)
+                actions = policy_outputs['action']
+                alpha = policy_outputs.get('alpha') # Use .get for safety, as alpha might be None
+                dynamic_margins = policy_outputs.get('dynamic_margins')
             
             # Store action for jerk calculation
             actions_list.append(actions.detach().cpu())
