@@ -1,0 +1,120 @@
+# Final Champion V8 Configuration - The Gemini Protocol
+# A dual-network architecture for the ultimate synthesis of safety and efficiency.
+
+run_name: "final_champion_v8_gemini"
+device: "cuda"
+
+evaluation:
+  run_name: "final_champion_v8_gemini"
+  model_step: 20000
+  num_episodes: 1000
+  device: "cuda"
+
+env:
+  env_type: "single_double_integrator"
+  area_size: 2.0
+  dt: 0.05
+  max_steps: 256
+  agent_radius: 0.05
+  mass: 0.1
+  max_force: 1.0
+  cbf_alpha: 1.0
+  obstacles:
+    enabled: true
+    positions: [[1.0, 1.0]]
+    radii: [0.2]
+
+# --- DUAL NETWORK ARCHITECTURE ---
+networks:
+  # The Pilot Network: A pure efficiency-seeker
+  pilot_network:
+    type: "bptt"
+    perception:
+      input_dim: 9
+      hidden_dim: 128
+      num_layers: 2
+    memory:
+      hidden_dim: 128
+      num_layers: 1
+    policy_head:
+      input_dim: 128
+      output_dim: 2
+      hidden_dims: [256, 256]
+
+  # The Guardian Network: A dedicated risk-assessment expert
+  guardian_network:
+    input_dim: 9
+    hidden_dims: [128, 128]
+    output_dim: 1 # Predicts a single scalar value: the barrier function 'h'
+
+# --- QP ARBITER CONFIGURATION ---
+qp_arbiter:
+  safety_margin: 0.1
+  alpha: 1.0
+
+# --- DUAL LOSS FUNCTION CONFIGURATION ---
+losses:
+  # Pilot's Loss Function (Efficiency-driven)
+  goal_weight: 1.0
+  progress_reward_weight: 1.0
+  jerk_loss_weight: 0.1
+
+  # Guardian's Loss Function (Safety-driven)
+  h_regression_weight: 1.0
+
+training:
+  training_steps: 20000
+  horizon_length: 64
+  pilot_lr: 0.0005
+  guardian_lr: 0.001
+  save_interval: 2000
+  max_grad_norm: 1.0
+
+# Legacy configurations for backward compatibility
+trainer:
+  run_name: "final_champion_v8_gemini"
+  log_dir: "logs"
+  bptt:
+    horizon_length: 64
+  optim:
+    lr: 0.0005
+
+wandb:
+  project: "gcbf-bptt-final"
+  entity: "jihaoye0922"
+  mode: "offline"
+
+# Extended environment configuration for completeness
+env_extended:
+  vision:
+    enabled: false
+    image_size: 64
+    camera_fov: 90.0
+    camera_range: 3.0
+  obstacles:
+    dynamic_count: false
+    random: false
+    random_count: 0
+    random_min_radius: 0.08
+    random_max_radius: 0.3
+    count_range: [2, 8]
+
+# GCBF safety parameters
+gcbf:
+  enabled: true
+  alpha: 1.0
+  safety_margin: 0.1
+  max_iterations: 10
+
+# Model architecture parameters
+model:
+  use_ensemble: false
+  ensemble_method: "mean"
+  num_policies: 3
+
+# Logging and monitoring
+logging:
+  log_interval: 10
+  eval_interval: 100
+  tensorboard: true
+  save_trajectories: false
