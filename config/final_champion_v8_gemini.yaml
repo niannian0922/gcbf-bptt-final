@@ -24,6 +24,42 @@ env:
     positions: [[1.0, 1.0]]
     radii: [0.2]
 
+# --- POLICY CONFIGURATION (Required by BPTTPolicy) ---
+policy:
+  hidden_dim: 128
+  type: "bptt"
+  
+  # Perception module configuration
+  perception:
+    vision_enabled: false
+    input_dim: 9
+    hidden_dim: 128
+    num_layers: 2
+    activation: "relu"
+    use_batch_norm: false
+    
+    # Vision-specific parameters (when enabled)
+    input_channels: 1
+    conv_channels: [32, 64, 128]
+    kernel_sizes: [5, 3, 3]
+    image_size: 64
+  
+  # Memory module configuration (GRU-based)
+  memory:
+    input_dim: 128
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.0
+  
+  # Policy head module configuration - Pure Pilot Network
+  policy_head:
+    input_dim: 128
+    output_dim: 2
+    hidden_dims: [256, 256]
+    activation: "relu"
+    output_activation: null
+    action_scale: 1.0
+
 # --- DUAL NETWORK ARCHITECTURE ---
 networks:
   # The Pilot Network: A pure efficiency-seeker
