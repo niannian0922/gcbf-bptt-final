@@ -76,8 +76,9 @@ class BPTTTrainer:
         training_cfg = self.config.get('training', {})
 
         # 1. Instantiate the Pilot Network (our refactored BPTTPolicy)
-        # We pass the 'pilot_network' sub-config to it
-        self.pilot_policy = BPTTPolicy(pilot_cfg).to(self.device)
+        # The pilot_policy, like the main policy, requires the full config
+        # to correctly initialize all its sub-modules and adaptive heads.
+        self.pilot_policy = BPTTPolicy(self.config).to(self.device)
 
         # 2. Instantiate the Guardian Network (our new safety expert)
         self.guardian_network = GuardianNetwork(guardian_cfg).to(self.device)
