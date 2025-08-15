@@ -87,6 +87,9 @@ class BPTTTrainer:
         sum_goal_distance = torch.zeros((), device=self.device)
         collision_count = torch.zeros((), device=self.device)
         sum_alpha = torch.zeros((), device=self.device)
+        
+        # Initialize previous goal distance for progress reward calculation
+        previous_goal_distance = self.env.get_goal_distance(init_state).detach()
 
         for _ in range(self.horizon):
             observations = self.env.get_observation(state)
@@ -113,8 +116,21 @@ class BPTTTrainer:
             
             # --- DYNAMIC LOSS CALCULATION ---
             goal_distances = self.env.get_goal_distance(next_state)
+            current_goal_distance = goal_distances
             avg_goal_distance_step = torch.mean(goal_distances)
             sum_goal_distance = sum_goal_distance + avg_goal_distance_step
+            
+            # --- START OF PROGRESS REWARD LOGIC ---
+            losses_cfg = self.config.get('losses', {})
+            progress_reward_weight = losses_cfg.get('progress_reward_weight', 0.0)
+
+            # The reward is the reduction in goal distance. A negative value is a penalty for moving away.
+            progress = previous_goal_distance - current_goal_distance
+            progress_reward = progress_reward_weight * torch.mean(progress)
+
+            # Update for the next iteration
+            previous_goal_distance = current_goal_distance.detach()
+            # --- END OF PROGRESS REWARD LOGIC ---
             
             # 2. Check for and use dynamic loss weights
             losses_cfg = self.config.get('losses', {})
@@ -141,7 +157,7 @@ class BPTTTrainer:
             is_safe_mask = (step_result.cost == 0).float().detach()
             gated_alpha_reg_loss = torch.mean(alpha_reg_w * is_safe_mask * ((1.0 - log_alpha) ** 2))
 
-            step_loss = track_cost + ctrl_cost + gated_alpha_reg_loss
+            step_loss = track_cost + ctrl_cost + gated_alpha_reg_loss - progress_reward
             # --- END OF DYNAMIC LOSS CALCULATION ---
 
             # Collision metric
