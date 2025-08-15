@@ -93,65 +93,61 @@ class BPTTTrainer:
             if hasattr(observations, "to"):
                 observations = observations.to(self.device)
 
-            # --- START OF PROBABILISTIC SHIELD LOGIC ---
-
-            # 1. Get the nominal action and safety confidence (alpha) from our advanced policy
-            # The policy now returns a tuple: (action, alpha, margin)
-            nominal_action, alpha, _ = self.policy(observations)
-
-            # 2. Define the safe backup action. For now, we use the simplest and most robust option: hovering (zero action).
+            # 1. Get dictionary output from the policy
+            policy_outputs = self.policy(observations)
+            nominal_action = policy_outputs['action']
+            alpha = policy_outputs.get('alpha')
+            
+            # --- PROBABILISTIC SHIELD BLENDING LOGIC ---
             safe_backup_action = torch.zeros_like(nominal_action)
-
-            # 3. Check if the policy is configured to predict alpha. If not, default to full trust in the policy.
             if alpha is None:
                 final_action = nominal_action
-                # Set a default alpha of 1.0 for logging purposes
                 log_alpha = torch.ones(nominal_action.shape[0], 1, device=self.device)
             else:
-                # 4. Implement the core blending logic of the shield!
                 final_action = alpha * nominal_action + (1 - alpha) * safe_backup_action
                 log_alpha = alpha
+            # --- END OF SHIELD LOGIC ---
 
-            # --- END OF PROBABILISTIC SHIELD LOGIC ---
-
-            step_result = self.env.step(state, final_action, alpha) # Pass alpha to step for potential use
+            step_result = self.env.step(state, final_action, alpha)
             next_state = step_result.next_state
-
-            # --- Loss Calculation with new Alpha Regularization ---
+            
+            # --- DYNAMIC LOSS CALCULATION ---
             goal_distances = self.env.get_goal_distance(next_state)
             avg_goal_distance_step = torch.mean(goal_distances)
             sum_goal_distance = sum_goal_distance + avg_goal_distance_step
+            
+            # 2. Check for and use dynamic loss weights
+            losses_cfg = self.config.get('losses', {})
+            if 'loss_weights' in policy_outputs:
+                dynamic_weights = policy_outputs['loss_weights']
+                goal_w = dynamic_weights['goal_weight']
+                jerk_w = dynamic_weights['jerk_loss_weight']
+                alpha_reg_w = dynamic_weights['alpha_reg_weight']
+            else:
+                # Fallback to static weights from config for backward compatibility
+                goal_w = losses_cfg.get('goal_weight', 1.0)
+                jerk_w = losses_cfg.get('jerk_loss_weight', 0.1)
+                alpha_reg_w = losses_cfg.get('alpha_reg_weight', 0.0)
 
-            # Control effort regularization (on the final action)
+            # 3. Calculate losses using the determined weights
+            track_cost = torch.mean(goal_w * (goal_distances ** 2))
+            
+            # For simplicity in this instruction, we assume jerk_cost is not yet implemented.
+            # If it is, it should also use jerk_w.
             ctrl_cost = 1e-3 * torch.sum(final_action ** 2)
 
-            # Tracking cost: squared goal distance
-            track_cost = torch.sum(goal_distances ** 2)
+            # Safety-Gated Alpha Regularization with dynamic weight
+            safety_gate_threshold = losses_cfg.get('safety_gate_threshold', 0.0)
+            is_safe_mask = (step_result.cost == 0).float().detach()
+            gated_alpha_reg_loss = torch.mean(alpha_reg_w * is_safe_mask * ((1.0 - log_alpha) ** 2))
 
-            # --- START OF SAFETY-GATED ALPHA REGULARIZATION ---
-
-            # 1. Get the safety gate threshold from the config.
-            losses_cfg = self.config.get('losses', {})
-            alpha_reg_weight = losses_cfg.get('alpha_reg_weight', 0.0)
-            safety_gate_threshold = losses_cfg.get('safety_gate_threshold', 0.0) # Default to 0 (always on) if not specified
-
-            # 2. Determine if the current state is "safe". We use the cost from the step_result.
-            # A cost > 0 indicates a collision, which is unsafe.
-            # We can also use goal_distance as a proxy for safety near obstacles.
-            # For simplicity and robustness, we'll use the collision cost. A cost of 0 means no collision occurred.
-            is_safe_mask = (step_result.cost == 0).float().detach() # Use detach to not flow gradients through the mask itself
-
-            # 3. Apply the alpha regularization loss ONLY on the states that are safe.
-            gated_alpha_reg_loss = alpha_reg_weight * torch.mean(is_safe_mask * ((1.0 - log_alpha) ** 2))
-
-            # --- END OF SAFETY-GATED ALPHA REGULARIZATION ---
+            step_loss = track_cost + ctrl_cost + gated_alpha_reg_loss
+            # --- END OF DYNAMIC LOSS CALCULATION ---
 
             # Collision metric
             collision_event = (step_result.cost > 0).to(self.device)
             collision_count = collision_count + torch.sum(collision_event.float())
 
-            # Update total loss
-            step_loss = track_cost + ctrl_cost + gated_alpha_reg_loss # Added new gated loss term
             cumulative_loss = cumulative_loss + step_loss
 
             # Accumulate alpha for averaging

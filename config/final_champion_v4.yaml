@@ -1,0 +1,170 @@
+# Final Champion V4 Configuration - Context-Aware Adaptive Policy
+# The ultimate architecture with dynamic loss weight adjustment capabilities
+
+# Top-level device selection
+device: "cuda"
+
+# Evaluation-specific configuration
+evaluation:
+  run_name: "final_champion_v4_adaptive"
+  model_step: 10000
+  num_episodes: 500
+  device: "cuda"
+
+# Optional run name at top-level (used by trainer fallback)
+run_name: "final_champion_v4_adaptive"
+
+# Environment configuration (must satisfy SingleAgentEnv and SingleDoubleIntegratorEnv)
+env:
+  env_type: "single_double_integrator"
+  area_size: 2.0           # scalar field size used for random init and goal sampling
+  dt: 0.05                 # integration timestep
+  max_steps: 256           # episode cap
+  agent_radius: 0.05       # agent collision radius
+
+  # Dynamics (specific to SingleDoubleIntegratorEnv)
+  mass: 0.1
+  max_force: 1.0
+  cbf_alpha: 1.0
+
+  # Optional vision block (kept disabled by default)
+  vision:
+    enabled: false
+    image_size: 64
+    camera_fov: 90.0
+    camera_range: 3.0
+
+  # Obstacles configuration (supports static and dynamic)
+  obstacles:
+    enabled: true
+    positions: [[1.0, 1.0]]
+    radii: [0.2]
+    # Dynamic/random generation toggles
+    dynamic_count: false
+    random: false
+    random_count: 0
+    random_min_radius: 0.08
+    random_max_radius: 0.3
+    count_range: [2, 8]
+
+# Policy configuration - ULTIMATE ADAPTIVE ARCHITECTURE
+policy:
+  use_adaptive_loss_weights: true # NEW: Master switch for context-aware policy
+  hidden_dim: 128
+  
+  # Complete BPTTPolicy configuration structure
+  type: "bptt"  # Policy type for factory function
+  
+  # Perception module configuration
+  perception:
+    vision_enabled: false  # Use state-based observations by default
+    input_dim: 9          # State dimension (x, y, vx, vy, goal_x, goal_y, obs_x, obs_y, obs_radius)
+    hidden_dim: 128       # Hidden layer dimension
+    num_layers: 2         # Number of hidden layers
+    activation: "relu"    # Activation function
+    use_batch_norm: false # Whether to use batch normalization
+    
+    # Vision-specific parameters (when enabled)
+    input_channels: 1     # Depth image channels
+    conv_channels: [32, 64, 128]  # CNN channel sizes
+    kernel_sizes: [5, 3, 3]       # CNN kernel sizes
+    image_size: 64                # Input image size
+  
+  # Memory module configuration (GRU-based)
+  memory:
+    input_dim: 128        # Will be set by perception output_dim
+    hidden_dim: 128       # Hidden state dimension
+    num_layers: 1         # Number of GRU layers
+    dropout: 0.0          # Dropout rate
+  
+  # Policy head module configuration - PROBABILISTIC SAFETY SHIELD ENABLED
+  policy_head:
+    input_dim: 128        # Will be set by memory hidden_dim
+    output_dim: 2         # Action dimension (fx, fy)
+    hidden_dims: [256, 256]  # Hidden layer dimensions
+    activation: "relu"        # Activation function
+    output_activation: null   # Output activation (null for linear)
+    action_scale: 1.0         # Action scaling factor
+    predict_alpha: true       # CRITICAL: Enable safety confidence prediction
+    alpha_hidden_dim: 64      # Alpha network hidden dimension
+    predict_margin: false     # Whether to predict dynamic safety margin
+    margin_hidden_dim: 32     # Margin network hidden dimension
+
+  # Extended sections for future models; kept for completeness and forward-compatibility
+  memory:
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.0
+
+  actor:
+    hidden_dims: [128, 128]
+    activation: "relu"
+    output_dim: 2
+    output_activation: null
+    learning_rate: 0.001
+
+  critic:
+    hidden_dims: [128, 128]
+    activation: "relu"
+    learning_rate: 0.001
+
+# Trainer configuration (used directly by train_single_agent and BPTTTrainer)
+trainer:
+  run_name: "final_champion_v4_adaptive"
+  log_dir: "logs"
+
+  # BPTT sub-config
+  bptt:
+    horizon_length: 64
+
+  # Optim sub-config for legacy readers
+  optim:
+    lr: 0.001
+
+# Unified training schema consumed by BPTTTrainer (preferred)
+training:
+  training_steps: 10000
+  horizon_length: 64
+  learning_rate: 0.001
+  save_interval: 1000
+  max_grad_norm: 10.0      # Gradient clipping norm
+  gradient_decay_rate: 0.95 # Temporal gradient decay rate
+
+# Weights & Biases configuration (consumed by BPTTTrainer via config.wandb)
+wandb:
+  project: "gcbf-bptt-final"
+  entity: "jihaoye0922"
+  mode: "offline"
+
+# Additional configuration sections for robustness
+
+# Loss function weights and parameters - DYNAMIC WEIGHT RANGES FOR ADAPTIVE POLICY
+losses:
+  # These now define the [min, max] range for the adaptive weights
+  goal_weight: [0.5, 5.0]          # Dynamic range for goal pursuit intensity
+  jerk_loss_weight: [0.01, 0.5]    # Dynamic range for smoothness control
+  alpha_reg_weight: [0.01, 0.2]    # Dynamic range for confidence regulation
+  # These remain static as they are fundamental safety constraints
+  collision_weight: 0.0             # Keep at 0, the shield handles it
+  safety_weight: 5.0                # Keep the implicit safety penalty
+  safety_gate_threshold: 0.1        # Keep the safety gate
+
+# GCBF safety parameters
+gcbf:
+  enabled: true
+  alpha: 1.0               # CBF parameter
+  safety_margin: 0.1       # Safety margin
+  max_iterations: 10       # Maximum QP iterations
+
+# Model architecture parameters
+model:
+  use_ensemble: false      # Whether to use ensemble policy
+  ensemble_method: "mean"  # Ensemble combination method
+  num_policies: 3          # Number of policies in ensemble
+
+# Logging and monitoring
+logging:
+  log_interval: 10         # Log every N steps
+  eval_interval: 100       # Evaluate every N steps
+  tensorboard: true        # Enable tensorboard logging
+  save_trajectories: false # Save trajectory data

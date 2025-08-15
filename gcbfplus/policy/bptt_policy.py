@@ -418,6 +418,38 @@ class PolicyHeadModule(nn.Module):
             return actions, alpha, dynamic_margins
 
 
+class LossWeightHead(nn.Module):
+    """A head that predicts dynamic loss weights based on features."""
+    def __init__(self, input_dim: int, weight_config: Dict[str, List[float]]):
+        super().__init__()
+        self.weight_config = weight_config
+        self.weight_keys = list(weight_config.keys())
+        self.num_weights = len(self.weight_keys)
+        
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, self.num_weights),
+            nn.Sigmoid()  # Output normalized weights in [0, 1]
+        )
+
+    def forward(self, features: torch.Tensor) -> Dict[str, torch.Tensor]:
+        # Predict normalized weights
+        normalized_weights = self.net(features)
+        
+        # Scale weights to their defined [min, max] ranges
+        scaled_weights = {}
+        for i, key in enumerate(self.weight_keys):
+            min_val, max_val = self.weight_config[key]
+            # Handle both batched and un-batched features
+            if features.dim() == 2: # Shape [batch*agents, features]
+                scaled_weights[key] = normalized_weights[:, i] * (max_val - min_val) + min_val
+            else: # Should not happen, but for safety
+                scaled_weights[key] = normalized_weights[i] * (max_val - min_val) + min_val
+
+        return scaled_weights
+
+
 class BPTTPolicy(nn.Module):
     """
     时序反向传播（BPTT）策略网络。
@@ -457,8 +489,17 @@ class BPTTPolicy(nn.Module):
         
         # 存储配置
         self.config = config
+        
+        # NEW: Adaptive loss weights functionality
+        self.use_adaptive_loss_weights = config.get('use_adaptive_loss_weights', False)
+        if self.use_adaptive_loss_weights:
+            # Filter for loss ranges defined as lists in the config
+            loss_ranges = {k: v for k, v in self.config.get('losses', {}).items() if isinstance(v, list)}
+            self.loss_weight_head = LossWeightHead(self.memory.hidden_dim, loss_ranges)
+        else:
+            self.loss_weight_head = None
     
-    def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    def forward(self, observations: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         前向传播：将观测转换为动作、可选的alpha值和动态安全裕度。
         
@@ -466,10 +507,11 @@ class BPTTPolicy(nn.Module):
             observations: 观测张量
                
         返回:
-            元组(actions, alpha, dynamic_margins):
-            - actions: 动作张量  
+            字典包含:
+            - action: 动作张量  
             - alpha: 动态alpha值（如果启用）或None
             - dynamic_margins: 动态安全裕度（如果启用）或None
+            - loss_weights: 动态损失权重（如果启用）或None
         """
         # 通过感知模块处理
         features = self.perception(observations)
@@ -479,8 +521,28 @@ class BPTTPolicy(nn.Module):
         
         # 通过策略头生成动作、alpha和动态安全裕度
         actions, alpha, dynamic_margins = self.policy_head(memory_output)
-        
-        return actions, alpha, dynamic_margins
+
+        outputs = {
+            'action': actions,
+            'alpha': alpha,
+            'dynamic_margins': dynamic_margins
+        }
+
+        if self.use_adaptive_loss_weights and self.loss_weight_head is not None:
+            # Flatten memory output for the head: [batch, agents, dim] -> [batch*agents, dim]
+            if memory_output.dim() == 3:
+                memory_output_flat = memory_output.view(-1, self.memory.hidden_dim)
+                dynamic_weights = self.loss_weight_head(memory_output_flat)
+                # Reshape weights back: e.g., [batch*agents] -> [batch, agents]
+                batch_size, n_agents = memory_output.shape[:2]
+                for key in dynamic_weights:
+                    dynamic_weights[key] = dynamic_weights[key].view(batch_size, n_agents)
+            else: # single-agent case
+                dynamic_weights = self.loss_weight_head(memory_output)
+
+            outputs['loss_weights'] = dynamic_weights
+
+        return outputs
     
     def reset(self) -> None:
         """重置策略的内部状态（例如记忆）。"""
