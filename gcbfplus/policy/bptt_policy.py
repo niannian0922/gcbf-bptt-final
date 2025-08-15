@@ -424,29 +424,35 @@ class BPTTPolicy(nn.Module):
         # 存储完整配置（自适应损失权重需要访问根级别的losses）
         self.config = config
         
-        # --- THE FINAL FIX ---
         # Get the policy-specific configuration block from the main config
         policy_cfg = config.get('policy', {})
-        # --- END OF FIX ---
-        
-        # 提取子配置（现在从policy_cfg获取）
+
+        # Extract sub-configurations
         perception_config = policy_cfg.get('perception', {})
-        memory_config = policy_cfg.get('memory', {})
+        memory_config = policy_cfg.get('memory', {}).copy()  # Use .copy() to avoid modifying the original dict
         policy_head_config = policy_cfg.get('policy_head', {})
-        
-        # 创建感知模块
+
+        # --- THE FINAL, DEFINITIVE FIX IS HERE ---
+        # 1. Build the PerceptionModule first to determine its output dimension.
         self.perception = PerceptionModule(perception_config)
-        
-        # 基于感知输出更新记忆输入维度
+
+        # 2. Get the master hidden_dim from the top level of the policy config.
+        # This ensures a consistent hidden dimension across all modules.
+        master_hidden_dim = policy_cfg.get('hidden_dim')
+        if master_hidden_dim is None:
+            raise ValueError("'hidden_dim' is a required key in the 'policy' configuration block.")
+
+        # 3. Explicitly construct the memory_config with all required keys.
         memory_config['input_dim'] = self.perception.output_dim
-        
-        # 创建记忆模块
+        memory_config['hidden_dim'] = master_hidden_dim  # Pass the master hidden_dim down.
+
+        # 4. Now, initialize the MemoryModule with the complete and correct configuration.
         self.memory = MemoryModule(memory_config)
-        
-        # 基于记忆输出更新策略头输入维度
+
+        # 5. Construct the policy_head_config.
         policy_head_config['input_dim'] = self.memory.hidden_dim
-        
-        # 创建策略头模块
+
+        # 6. Initialize the PolicyHeadModule.
         self.policy_head = PolicyHeadModule(policy_head_config)
         
         # NEW: Adaptive loss weights functionality
