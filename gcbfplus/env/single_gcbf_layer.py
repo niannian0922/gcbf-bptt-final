@@ -260,3 +260,43 @@ class SingleAgentGCBFLayer(nn.Module):
             outputs['alpha_safety'] = torch.ones_like(nominal_action[:, :1])
         
         return outputs
+
+    def get_cbf_constraints(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the components of the GCBF inequality for a given state.
+        Inequality is: cbf_gradient @ u.T >= -cbf_value
+        This corresponds to: L_g h(x) @ u.T >= - (L_f h(x) + alpha * h(x))
+
+        Args:
+            state (torch.Tensor): The current state of the agent(s).
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+                - cbf_value (torch.Tensor): The action-independent term, i.e., L_f h(x) + alpha * h(x).
+                - cbf_gradient (torch.Tensor): The action-multiplying term, i.e., L_g h(x).
+        """
+        # Note: This is a skeleton. The actual implementation will depend on the specifics
+        # of our learned GCBF model and the system dynamics. We need to compute the
+        # Lie derivatives of the CBF function h(x).
+
+        # Placeholder for h(x) and its derivatives
+        h, grad_h = self.cbf_network(state) # Assuming cbf_network gives h and its gradient w.r.t. state
+
+        # Placeholder for dynamics f(x) and g(x)
+        # These should come from our differentiable physics model
+        fx = self.dynamics_model.f(state)
+        gx = self.dynamics_model.g(state)
+
+        # L_f h(x) = grad_h * f(x)
+        l_f_h = torch.sum(grad_h * fx, dim=1, keepdim=True)
+
+        # L_g h(x) = grad_h * g(x)
+        l_g_h = torch.sum(grad_h * gx, dim=1, keepdim=True) # This might need adjustment based on g(x) dimensions
+
+        # cbf_value = L_f h(x) + alpha * h(x)
+        cbf_value = l_f_h + self.alpha * h
+
+        # cbf_gradient = L_g h(x)
+        cbf_gradient = l_g_h
+
+        return cbf_value, cbf_gradient
