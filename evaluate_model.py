@@ -298,10 +298,7 @@ def main():
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     
-    # Override model step if specified
-    if 'evaluation' not in config:
-        config['evaluation'] = {}
-    config['evaluation']['model_step'] = args.model_step
+
     
     # Set device
     device = torch.device(config.get('device', 'cuda'))
