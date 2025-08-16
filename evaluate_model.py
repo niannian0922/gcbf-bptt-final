@@ -36,16 +36,20 @@ class EpisodeResult:
 class ModelEvaluator:
     """Comprehensive model evaluator for quantitative analysis."""
     
-    def __init__(self, config: Dict[str, Any], device: torch.device):
+    def __init__(self, config: Dict[str, Any], device: torch.device, pilot_path: str, guardian_path: str):
         """
         Initialize the model evaluator.
         
         Args:
             config: Configuration dictionary
             device: Device to run evaluation on
+            pilot_path: Path to the pilot model checkpoint
+            guardian_path: Path to the guardian model checkpoint
         """
         self.config = config
         self.device = device
+        self.pilot_path = pilot_path
+        self.guardian_path = guardian_path
         
         # Extract evaluation configuration
         eval_config = config.get('evaluation', {})
@@ -56,35 +60,29 @@ class ModelEvaluator:
         # Initialize environment
         self.env = SingleDoubleIntegratorEnv(config.get('env', {}), device=device)
         
-        # Pass the entire configuration object to the policy, ensuring it has access
-        # to all necessary blocks (e.g., 'policy', 'losses').
-        self.policy = BPTTPolicy(config)
-        self.policy.to(device)
-        
-        # Load trained model checkpoint
-        self._load_checkpoint()
-        
-        # Set policy to evaluation mode
-        self.policy.eval()
+        # Initialize Pilot Policy
+        self.pilot_policy = BPTTPolicy(config)
+        self.pilot_policy.to(device)
+        print(f"Loading pilot checkpoint from: {self.pilot_path}")
+        pilot_checkpoint = torch.load(self.pilot_path, map_location=self.device)
+        self.pilot_policy.load_state_dict(pilot_checkpoint)
+        print("✓ Pilot model checkpoint loaded successfully")
+
+        # Initialize Guardian Policy
+        self.guardian_policy = BPTTPolicy(config)  # Assuming guardian has the same architecture
+        self.guardian_policy.to(device)
+        print(f"Loading guardian checkpoint from: {self.guardian_path}")
+        guardian_checkpoint = torch.load(self.guardian_path, map_location=self.device)
+        self.guardian_policy.load_state_dict(guardian_checkpoint)
+        print("✓ Guardian model checkpoint loaded successfully")
+
+        # Set both policies to evaluation mode
+        self.pilot_policy.eval()
+        self.guardian_policy.eval()
         
         # Results storage
         self.episode_results: List[EpisodeResult] = []
-        
-    def _load_checkpoint(self):
-        """Load the trained model checkpoint."""
-        # Construct checkpoint path
-        log_dir = self.config.get('trainer', {}).get('log_dir', 'logs')
-        checkpoint_path = Path(log_dir) / self.run_name / 'models' / str(self.model_step) / 'policy.pt'
-        
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found at: {checkpoint_path}")
-        
-        print(f"Loading checkpoint from: {checkpoint_path}")
-        
-        # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        self.policy.load_state_dict(checkpoint)
-        print("✓ Model checkpoint loaded successfully")
+
     
     def _calculate_trajectory_jerk(self, actions: torch.Tensor) -> float:
         """
@@ -138,8 +136,8 @@ class ModelEvaluator:
             
             # Get action from policy (no gradients needed for evaluation)
             with torch.no_grad():
-                # Get the dictionary of outputs from the policy
-                policy_outputs = self.policy(observations)
+                # Get the dictionary of outputs from the pilot policy
+                policy_outputs = self.pilot_policy(observations)
                 actions = policy_outputs['action']
                 alpha = policy_outputs.get('alpha') # Use .get for safety, as alpha might be None
                 dynamic_margins = policy_outputs.get('dynamic_margins')
@@ -291,7 +289,8 @@ def main():
     """Main evaluation function."""
     parser = argparse.ArgumentParser(description="Evaluate trained GCBF+BPTT model")
     parser.add_argument("--config", type=str, required=True, help="Path to configuration file")
-    parser.add_argument("--model_step", type=int, default=10000, help="Model checkpoint step to load")
+    parser.add_argument("--pilot_path", type=str, required=True, help="Path to the trained pilot.pt model file.")
+    parser.add_argument("--guardian_path", type=str, required=True, help="Path to the trained guardian.pt model file.")
     
     args = parser.parse_args()
     
@@ -309,8 +308,8 @@ def main():
     print(f"Using device: {device}")
     
     try:
-        # Initialize evaluator
-        evaluator = ModelEvaluator(config, device)
+        # Initialize evaluator with both pilot and guardian model paths
+        evaluator = ModelEvaluator(config, device, pilot_path=args.pilot_path, guardian_path=args.guardian_path)
         
         # Run evaluation
         kpis = evaluator.evaluate()
