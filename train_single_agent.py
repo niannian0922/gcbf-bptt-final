@@ -1,40 +1,43 @@
-import argparse
-import yaml
+# train_single_agent.py (决战修正版)
+
+import hydra
+from omegaconf import DictConfig, OmegaConf
 import torch
-from gcbfplus.env.single_double_integrator import SingleDoubleIntegratorEnv
+
+# =====================================================================
+# ▼▼▼ 核心修复：使用正确的、绝对的导入路径 ▼▼▼
+# =====================================================================
 from gcbfplus.trainer.bptt_trainer import BPTTTrainer
+from gcbfplus.env.single_agent_env import SingleAgentEnv
+# =====================================================================
+# ▲▲▲ 修复结束 ▲▲▲
+# =====================================================================
 
-def main():
-    parser = argparse.ArgumentParser(description="Train a single agent.")
-    parser.add_argument("--config", type=str, required=True, help="Path to the configuration file.")
-    args = parser.parse_args()
+@hydra.main(config_path="../config", config_name="default_single_agent.yaml")
+def main(cfg: DictConfig):
+    # Print the full config for debugging
+    print(OmegaConf.to_yaml(cfg))
 
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
-
-    device = torch.device(config.get('device', 'cpu'))
-    env_cfg = config.get('env', {})
-    trainer_cfg = config.get('trainer', {})
-    policy_cfg = config.get('policy', {})
-
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Pass the device to the environment constructor
-    env = SingleDoubleIntegratorEnv(env_cfg, device=device)
-    # The trainer and policy will be created inside the BPTTTrainer
-    trainer = BPTTTrainer(env, trainer_cfg, policy_cfg, device=device, full_config=config)
+    # --- 核心修复：确保env和trainer都被正确初始化 ---
+    # 1. Initialize the environment
+    env = SingleAgentEnv(cfg, device=device)
 
-    print("Starting BPTT training with configuration:")
-    print(f"  Run name: {trainer_cfg.get('run_name', 'default')}")
-    # Prefer new unified training config if present
-    effective_num_steps = trainer_cfg.get('trainer', {}).get('num_steps', config.get('training', {}).get('training_steps', 0))
-    print(f"  Steps: {effective_num_steps}")
-    print(f"  Horizon: {trainer_cfg.get('bptt', {}).get('horizon_length', 0)}")
-    print(f"  Log dir: {trainer_cfg.get('log_dir', 'logs')}/{trainer_cfg.get('run_name', 'default')}")
+    # 2. Initialize the trainer
+    #    (bptt_trainer的__init__已经足够处理所有逻辑，这里无需传入trainer_cfg和policy_cfg)
+    trainer = BPTTTrainer(
+        env=env,
+        trainer_cfg=cfg.trainer,
+        policy_cfg=cfg.policy,
+        device=device,
+        full_config=cfg
+    )
 
-    trainer.train(num_steps=effective_num_steps)
-    return 0
+    # 3. Start training
+    trainer.train()
 
 if __name__ == '__main__':
-    raise SystemExit(main())
-
+    main()
